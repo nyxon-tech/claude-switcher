@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed
+- Recover offered every older part of a chat as a separate lost chat. A Desktop chat is several history files (a `/clear`, a restart or a resume starts a new one under the same title) and its sidebar record points only at the newest, so recovering "everything" filled a list with duplicates. Recover now leaves out files whose title and project match a chat you still have, files that another file continues, and chats you deleted in the app, and offers each lost chat once at its newest file. On the machine that hit it, 54 offers became 6.
+- Typing a letter in a multi-select list no longer acts on it: `A` used to select everything, so typing a title that contained an "a" picked every chat. Letters now start a search, and Ctrl+A selects all.
+- Every move, copy and recovery asks to confirm the number of chats first.
+- Holding an arrow key no longer freezes the menu. Only the rows that change are redrawn, queued key presses are applied together, and the status line is read once per screen instead of on every frame.
+
 ## 2.0.0 — Claude Switcher by Nyxon
 
 The fork of [claude-profile-switcher](https://github.com/NeezerGu/claude-profile-switcher) becomes Claude Switcher.

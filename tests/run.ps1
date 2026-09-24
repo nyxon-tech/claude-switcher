@@ -150,6 +150,32 @@ Check 'nothing is left to rescue afterwards' ($out -match 'Every chat history')
 $out = Run undo
 Check 'undo removes the recovered records' (@(Get-ChildItem $workDir -Filter 'local_*.json').Count -eq 2)
 
+Write-Host "`nrescue keeps one chat as one chat" -ForegroundColor Cyan
+$s9 = '10000000-0000-4000-8000-000000000009'
+Card $WORK 'c9' $s9 'Big feature' ($now - 60000)
+Transcript $s9 @('{"type":"custom-title","customTitle":"Big feature"}', '{"type":"user","parentUuid":null,"uuid":"30000000-0000-4000-8000-000000000009","timestamp":"2026-09-22T10:00:00.000Z","cwd":"C:\\work\\proj"}')
+$o3 = '20000000-0000-4000-8000-000000000003'; $o4 = '20000000-0000-4000-8000-000000000004'; $o5 = '20000000-0000-4000-8000-000000000005'
+$u4 = '30000000-0000-4000-8000-000000000004'; $u5 = '30000000-0000-4000-8000-000000000005'
+Transcript $o3 @('{"type":"custom-title","customTitle":"Big feature"}', '{"type":"user","parentUuid":null,"uuid":"30000000-0000-4000-8000-000000000003","timestamp":"2026-09-21T10:00:00.000Z","cwd":"C:\\work\\proj"}')
+Transcript $o4 @('{"type":"custom-title","customTitle":"Lost chat"}', ('{"type":"user","parentUuid":null,"uuid":"' + $u4 + '","timestamp":"2026-09-10T10:00:00.000Z","cwd":"C:\\work\\proj"}'))
+Transcript $o5 @('{"type":"custom-title","customTitle":"Lost chat"}', ('{"type":"user","parentUuid":"' + $u4 + '","uuid":"' + $u5 + '","timestamp":"2026-09-11T10:00:00.000Z","cwd":"C:\\work\\proj"}'))
+$o6 = '20000000-0000-4000-8000-000000000006'
+Transcript $o6 @('{"type":"custom-title","customTitle":"Deleted on purpose"}', '{"type":"user","parentUuid":null,"uuid":"30000000-0000-4000-8000-000000000006","timestamp":"2026-09-12T10:00:00.000Z","cwd":"C:\\work\\proj"}')
+Put "$workDir\deleted_$o6" '1789000000000'
+$out = Run rescue
+Check 'a chat deleted in the app is not offered' ($out -notmatch 'Deleted on purpose')
+Check 'an older part of a chat that still has a sidebar record is not offered' ($out -notmatch 'Big feature')
+Check 'a lost chat made of several transcripts is offered once' (([regex]::Matches($out, 'Lost chat')).Count -eq 1)
+Check 'rescue says how many older parts it left out' ($out -match 'older part')
+$before = @(Get-ChildItem $workDir -Filter 'local_*.json').Count
+$out = Run rescue -To work -All
+$made = @(Get-ChildItem $workDir -Filter 'local_*.json').Count - $before
+$lostCard = @(Get-ChildItem $workDir -Filter 'local_*.json' | ForEach-Object { [IO.File]::ReadAllText($_.FullName, $utf8) | ConvertFrom-Json } | Where-Object { $_.title -eq 'Lost chat' })
+Check 'recovering everything adds one record per lost chat, not per transcript' ($made -eq 3 -and $lostCard.Count -eq 1)
+Check 'the recovered chat points at its newest transcript' ($lostCard.Count -eq 1 -and $lostCard[0].cliSessionId -eq $o5)
+$out = Run undo
+Check 'undo takes the recovery back' (@(Get-ChildItem $workDir -Filter 'local_*.json').Count -eq $before)
+
 Write-Host "`ndoctor and commands" -ForegroundColor Cyan
 $out = Run doctor
 Check 'doctor is happy with a clean setup' ($out -notmatch 'junction')
@@ -185,6 +211,29 @@ $colors = [Enum]::GetNames([ConsoleColor])
 Check 'every menu segment names a console colour' (@($segments | Where-Object { $_ -and $colors -notcontains [string]$_[1] }).Count -eq 0)
 Check 'no menu line is wider than the window' (@($frames | ForEach-Object { $_ } | Where-Object { (@($_ | ForEach-Object { ([string]$_[0]).Length }) | Measure-Object -Sum).Sum -gt 70 }).Count -eq 0)
 Check 'menu details are drawn, not swallowed into the label' (@($segments | Where-Object { [string]$_[0] -match 'DarkGray' }).Count -eq 0)
+
+Write-Host "`nmenu keys" -ForegroundColor Cyan
+$keys = & {
+    . ([scriptblock]::Create($source)) -Command 'noop' -ClaudeDir $live -InstanceDir $vault -ProjectsDir $projects
+    $items = @('alpha', 'beta', 'gamma' | ForEach-Object { [pscustomobject]@{ Label = $_; Detail = ''; Value = $_ } })
+    $state = @{ Title = 't'; Items = $items; Multi = $true; Note = ''; Chosen = @{}; Cursor = 0; Top = 0; Filter = ''; Typing = $false; Status = 's'; Width = 60; Height = 14 }
+    $press = { param($char, $key, $ctrl) $frame = Format-PickerFrame $state; Step-Picker $state $frame ([ConsoleKeyInfo]::new($char, $key, $false, $false, $ctrl)) }
+    [void](& $press 'a' ([ConsoleKey]::A) $false)
+    $afterA = @{ Chosen = $state.Chosen.Count; Filter = $state.Filter; Typing = $state.Typing }
+    [void](& $press ([char]27) ([ConsoleKey]::Escape) $false)
+    [void](& $press ([char]1) ([ConsoleKey]::A) $true)
+    $afterCtrlA = $state.Chosen.Count
+    [void](& $press ([char]0) ([ConsoleKey]::DownArrow) $false)
+    [void](& $press ([char]0) ([ConsoleKey]::DownArrow) $false)
+    [void](& $press ([char]0) ([ConsoleKey]::DownArrow) $false)
+    $cursor = $state.Cursor
+    $done = & $press ([char]27) ([ConsoleKey]::Escape) $false
+    @{ AfterA = $afterA; AfterCtrlA = $afterCtrlA; Cursor = $cursor; Done = [bool]$done; Value = $done.Value }
+}
+Check 'typing a letter searches and selects nothing' ($keys.AfterA.Chosen -eq 0 -and $keys.AfterA.Filter -eq 'a' -and $keys.AfterA.Typing)
+Check 'Ctrl+A selects every chat' ($keys.AfterCtrlA -eq 3)
+Check 'the cursor stops at the last item' ($keys.Cursor -eq 2)
+Check 'Esc leaves the picker with nothing chosen' ($keys.Done -and $null -eq $keys.Value)
 
 Remove-Item $root -Recurse -Force
 Write-Host ''

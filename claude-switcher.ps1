@@ -28,7 +28,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Script:Version = '2.0.0'
+$Script:Version = '2.0.1'
 $Script:RepoUrl = 'https://github.com/nyxon-tech/claude-switcher'
 
 # ------------------------------------------------------------------ discovery
@@ -494,6 +494,7 @@ function Invoke-Transfer($Source, $Target, [object[]]$Chats, [bool]$MoveThem) {
     if (-not $Chats -or $Chats.Count -eq 0) { Info 'No chats selected.'; return }
     if ($Source.Dir -eq $Target.Dir) { Fail 'Pick two different accounts.'; return }
     $verb = if ($MoveThem) { 'Moved' } else { 'Copied' }
+    if (-not (Confirm-Action "$(if ($MoveThem) { 'Move' } else { 'Copy' }) $($Chats.Count) chat(s) from $($Source.Label) to $($Target.Label)?")) { return }
     if (-not (Wait-ClaudeClosed)) { return }
     $journal = New-Journal $(if ($MoveThem) { 'move' } else { 'copy' })
     $written = 0; $present = 0
@@ -565,8 +566,8 @@ function Find-Value([string]$Text, [string]$Key, [switch]$Last) {
 
 # Reads what a sidebar record needs from a transcript. Files reach tens of megabytes, so no line-by-line parsing
 # except the first few user turns when there is no custom title.
-function Read-Transcript([string]$Path, [string]$Session) {
-    $text = [IO.File]::ReadAllText($Path, $Script:Utf8)
+function Read-Transcript([string]$Path, [string]$Session, [string]$Text = '') {
+    $text = if ($Text) { $Text } else { [IO.File]::ReadAllText($Path, $Script:Utf8) }
     $firstStamp = Find-Value $text 'timestamp'
     $cwd = Find-Value $text 'cwd'
     if (-not $firstStamp -or -not $cwd) { return $null }
@@ -590,29 +591,80 @@ function Read-Transcript([string]$Path, [string]$Session) {
     }
     if (-not $title) { $title = 'Recovered chat' }
     $title = Format-Title $title
+    $key = Get-ChatKey $title $cwd
     if ($title.Length -gt 80) { $title = $title.Substring(0, 79) + [char]0x2026 }
     $culture = [Globalization.CultureInfo]::InvariantCulture
     [pscustomobject]@{
-        Session = $Session; Path = $Path; Title = $title; Cwd = $cwd; Project = Split-Path $cwd -Leaf; Model = $model
+        Session = $Session; Path = $Path; Title = $title; Key = $key; Cwd = $cwd; Project = Split-Path $cwd -Leaf; Model = $model
         First   = [DateTimeOffset]::Parse($firstStamp, $culture).ToUnixTimeMilliseconds()
         Last    = [DateTimeOffset]::Parse($lastStamp, $culture).ToUnixTimeMilliseconds()
     }
 }
 
-# Transcripts on disk that no account lists: chats Desktop lost track of
+# Desktop titles every transcript of a chat with the chat's title, so title and project identify the chat
+function Get-ChatKey($Title, $Cwd) { ("$(Format-Title $Title)|$Cwd").ToLowerInvariant() }
+
+# The message a transcript's first message answers: empty for a fresh start, otherwise a message
+# in the earlier transcript this one continues
+function Get-FirstParent([string]$Text) {
+    $at = $Text.IndexOf('"parentUuid":', [StringComparison]::Ordinal)
+    if ($at -lt 0 -or $Text.Length -lt $at + 51 -or $Text[$at + 13] -ne '"') { return '' }
+    return $Text.Substring($at + 14, 36)
+}
+
+function Get-HeadParent([string]$Path) {
+    $seen = 0
+    foreach ($line in [IO.File]::ReadLines($Path)) {
+        if ($line.Contains('"parentUuid":')) { return Get-FirstParent $line }
+        if (++$seen -gt 200) { break }
+    }
+    return ''
+}
+
+# Chats whose history is on disk but that no account lists. One Desktop chat spans several transcripts
+# (a /clear, a restart or a resume starts a new one under the same title) and its record points only at
+# the newest, so a transcript counts as lost only when no record carries its title in its project, no
+# other transcript continues it, and the chat was not deleted in the app. Each lost chat is offered once,
+# at its newest transcript.
 function Get-Orphans {
     $index = Get-TranscriptIndex
-    $known = @{}
+    $carded = @{}; $titled = @{}; $deleted = @{}
     foreach ($space in Get-Spaces) {
-        foreach ($f in @(Get-ChildItem $space.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
+        foreach ($f in @(Get-ChildItem $space.Dir -File -ErrorAction SilentlyContinue)) {
+            if ($f.Name.StartsWith('deleted_')) { $deleted[$f.Name.Substring(8)] = $true; continue }
+            if (-not ($f.Name.StartsWith('local_') -and $f.Name.EndsWith('.json'))) { continue }
             $card = Read-Json $f.FullName
-            if ($card -and $card.cliSessionId) { $known[[string]$card.cliSessionId] = $true }
+            if (-not $card) { continue }
+            if ($card.cliSessionId) { $carded[[string]$card.cliSessionId] = $true }
+            if ($card.title) { $titled[(Get-ChatKey $card.title $card.cwd)] = $true }
         }
     }
-    $found = foreach ($session in @($index.Keys | Where-Object { -not $known.ContainsKey($_) })) {
-        Read-Transcript $index[$session] $session
+    $candidates = @($index.Keys | Where-Object { -not $carded.ContainsKey($_) -and -not $deleted.ContainsKey($_) })
+
+    # every transcript's first message names the message it continues from, if any
+    $parent = @{}
+    foreach ($session in @($candidates + @($carded.Keys | Where-Object { $index.ContainsKey($_) }))) {
+        $p = Get-HeadParent $index[$session]
+        if ($p) { $parent[$session] = $p }
     }
-    @($found | Where-Object { $_ } | Sort-Object Last -Descending)
+    $wanted = @($parent.Values | Sort-Object -Unique)
+    $holds = if ($wanted.Count) { [regex]('"uuid":"(' + ($wanted -join '|') + ')"') } else { $null }
+
+    $older = @{}
+    $found = foreach ($session in $candidates) {
+        $text = [IO.File]::ReadAllText($index[$session], $Script:Utf8)
+        if ($holds) {
+            foreach ($m in $holds.Matches($text)) {
+                if ($parent[$session] -ne $m.Groups[1].Value) { $older[$session] = $true; break }
+            }
+        }
+        Read-Transcript $index[$session] $session $text
+    }
+    $found = @($found | Where-Object { $_ })
+    $lost = @($found | Where-Object { -not $older.ContainsKey($_.Session) -and -not $titled.ContainsKey($_.Key) })
+    $chats = @(foreach ($group in @($lost | Group-Object Key)) { @($group.Group | Sort-Object Last -Descending)[0] })
+    $Script:HiddenParts = $found.Count - $chats.Count
+    @($chats | Sort-Object Last -Descending)
 }
 
 function New-Card($Transcript) {
@@ -639,6 +691,7 @@ function New-Card($Transcript) {
 
 function Invoke-Rescue($Target, [object[]]$Transcripts) {
     if (-not $Transcripts -or $Transcripts.Count -eq 0) { Info 'No chats selected.'; return }
+    if (-not (Confirm-Action "Recover $($Transcripts.Count) chat(s) into $($Target.Label)?")) { return }
     if (-not (Wait-ClaudeClosed)) { return }
     $journal = New-Journal 'rescue'
     foreach ($t in $Transcripts) {
@@ -757,11 +810,90 @@ function Format-PickerFrame($State) {
     if ($view.Count -eq 0) { [void]$lines.Add(@(, @('    nothing matches', 'DarkGray'))) }
     while ($lines.Count -lt $State.Height - 2) { [void]$lines.Add(@()) }
     $keys = if ($State.Typing) { "  search: $($State.Filter)_   Enter keep  Esc clear" }
-        elseif ($State.Multi) { '  Up/Down move  Space select  A all  / search  Enter confirm  Esc back' }
-        else { '  Up/Down move  / search  Enter choose  Esc back' }
+        elseif ($State.Multi) { '  Space pick  Ctrl+A all  type to search  Enter confirm  Esc back' }
+        else { '  Arrows move  type to search  Enter choose  Esc back' }
     if ($State.Filter -and -not $State.Typing) { $keys = "  filter: $($State.Filter)   " + $keys.Trim() }
+    if ($keys.Length -gt $width) { $keys = $keys.Substring(0, $width) }
     [void]$lines.Add(@(, @($keys, 'DarkGray')))
     [pscustomobject]@{ Lines = $lines; View = $view; Rows = $rows }
+}
+
+# Draws only the rows that changed since the last frame
+function Write-Frame($Lines, $Shown, [int]$Origin, [int]$Width, [int]$Height) {
+    for ($row = 0; $row -lt $Height; $row++) {
+        $segs = if ($row -lt $Lines.Count) { $Lines[$row] } else { @() }
+        $drawn = @($segs | ForEach-Object { "$($_[1]):$($_[0])" }) -join '|'
+        if ($Shown.ContainsKey($row) -and $Shown[$row] -eq $drawn) { continue }
+        $Shown[$row] = $drawn
+        [Console]::SetCursorPosition(0, $Origin + $row)
+        [Console]::Write(' ' * $Width)
+        [Console]::SetCursorPosition(0, $Origin + $row)
+        $used = 0
+        foreach ($seg in $segs) {
+            $text = [string]$seg[0]
+            if ($used + $text.Length -gt $Width) { $text = $text.Substring(0, [Math]::Max(0, $Width - $used)) }
+            if ($text) { [Console]::ForegroundColor = [ConsoleColor]$seg[1]; [Console]::Write($text) }
+            $used += $text.Length
+        }
+        [Console]::ResetColor()
+    }
+}
+
+# Applies one key to the picker. Returns @{ Value = ... } when the picker is done.
+function Step-Picker($State, $Frame, [ConsoleKeyInfo]$Key) {
+    $view = $Frame.View
+    $chosen = $State.Chosen
+    $char = $Key.KeyChar
+    $ctrl = ($Key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
+    if ($State.Typing) {
+        switch ($Key.Key) {
+            'Enter' { $State.Typing = $false; return $null }
+            'Escape' { $State.Typing = $false; $State.Filter = ''; return $null }
+            'Backspace' {
+                if ($State.Filter) { $State.Filter = $State.Filter.Substring(0, $State.Filter.Length - 1) }
+                if (-not $State.Filter) { $State.Typing = $false }
+                return $null
+            }
+            'UpArrow' { $State.Typing = $false }
+            'DownArrow' { $State.Typing = $false }
+            default {
+                if (-not $ctrl -and -not [char]::IsControl($char)) { $State.Filter += $char; $State.Cursor = 0; $State.Top = 0 }
+                return $null
+            }
+        }
+    }
+    switch ($Key.Key) {
+        'UpArrow' { if ($State.Cursor -gt 0) { $State.Cursor-- }; return $null }
+        'DownArrow' { if ($State.Cursor -lt $view.Count - 1) { $State.Cursor++ }; return $null }
+        'PageUp' { $State.Cursor = [Math]::Max(0, $State.Cursor - $Frame.Rows); return $null }
+        'PageDown' { $State.Cursor = [Math]::Min([Math]::Max(0, $view.Count - 1), $State.Cursor + $Frame.Rows); return $null }
+        'Home' { $State.Cursor = 0; return $null }
+        'End' { $State.Cursor = [Math]::Max(0, $view.Count - 1); return $null }
+        'Spacebar' {
+            if ($State.Multi -and $view.Count) { $i = $view[$State.Cursor]; if ($chosen.ContainsKey($i)) { $chosen.Remove($i) } else { $chosen[$i] = $true } }
+            return $null
+        }
+        'Escape' { if ($State.Filter) { $State.Filter = ''; return $null }; return @{ Value = $null } }
+        'Enter' {
+            if ($view.Count -eq 0) { return $null }
+            if (-not $State.Multi) { return @{ Value = $State.Items[$view[$State.Cursor]] } }
+            if ($chosen.Count -eq 0) { return @{ Value = @($State.Items[$view[$State.Cursor]]) } }
+            return @{ Value = @($chosen.Keys | Sort-Object | ForEach-Object { $State.Items[$_] }) }
+        }
+        'A' {
+            if ($ctrl -and $State.Multi) {
+                $allChosen = @($view | Where-Object { $chosen.ContainsKey($_) }).Count -eq $view.Count
+                foreach ($i in $view) { if ($allChosen) { $chosen.Remove($i) } else { $chosen[$i] = $true } }
+                return $null
+            }
+        }
+    }
+    # any other printable key starts a search, so typing a title never triggers an action
+    if (-not $ctrl -and -not [char]::IsControl($char) -and $char -ne ' ') {
+        $State.Typing = $true
+        if ($char -ne '/') { $State.Filter += $char; $State.Cursor = 0; $State.Top = 0 }
+    }
+    return $null
 }
 
 function Show-Picker {
@@ -772,64 +904,27 @@ function Show-Picker {
         [string]$Note = ''
     )
     if (-not $Items -or $Items.Count -eq 0) { return $null }
-    $state = @{ Title = $Title; Items = $Items; Multi = [bool]$Multi; Note = $Note; Chosen = @{}; Cursor = 0; Top = 0; Filter = ''; Typing = $false; Status = '' }
-    Clear-Host
-    $origin = [Console]::WindowTop
+    $state = @{ Title = $Title; Items = $Items; Multi = [bool]$Multi; Note = $Note; Chosen = @{}; Cursor = 0; Top = 0; Filter = ''; Typing = $false; Status = (Get-StatusLine) }
+    $shown = @{}
+    $size = ''
+    $origin = 0
     while ($true) {
         $state.Width = [Math]::Max(40, [Console]::WindowWidth - 1)
         $state.Height = [Math]::Max(12, [Console]::WindowHeight - 1)
+        if ("$($state.Width)x$($state.Height)" -ne $size) {
+            $size = "$($state.Width)x$($state.Height)"
+            $shown = @{}
+            Clear-Host
+            $origin = [Console]::WindowTop
+        }
         $frame = Format-PickerFrame $state
-        $view = $frame.View
-        for ($row = 0; $row -lt $frame.Lines.Count -and $row -lt $state.Height; $row++) {
-            [Console]::SetCursorPosition(0, $origin + $row)
-            Write-Host (' ' * $state.Width) -NoNewline
-            [Console]::SetCursorPosition(0, $origin + $row)
-            $used = 0
-            foreach ($seg in $frame.Lines[$row]) {
-                $text = [string]$seg[0]
-                if ($used + $text.Length -gt $state.Width) { $text = $text.Substring(0, [Math]::Max(0, $state.Width - $used)) }
-                if ($text) { Write-Host $text -NoNewline -ForegroundColor $seg[1] }
-                $used += $text.Length
-            }
-        }
-
-        $key = [Console]::ReadKey($true)
-        if ($state.Typing) {
-            switch ($key.Key) {
-                'Enter' { $state.Typing = $false }
-                'Escape' { $state.Typing = $false; $state.Filter = '' }
-                'Backspace' { if ($state.Filter) { $state.Filter = $state.Filter.Substring(0, $state.Filter.Length - 1) } }
-                default { if (-not [char]::IsControl($key.KeyChar)) { $state.Filter += $key.KeyChar; $state.Cursor = 0; $state.Top = 0 } }
-            }
-            continue
-        }
-        $chosen = $state.Chosen
-        switch ($key.Key) {
-            'UpArrow' { if ($state.Cursor -gt 0) { $state.Cursor-- } }
-            'DownArrow' { if ($state.Cursor -lt $view.Count - 1) { $state.Cursor++ } }
-            'PageUp' { $state.Cursor = [Math]::Max(0, $state.Cursor - $frame.Rows) }
-            'PageDown' { $state.Cursor = [Math]::Min([Math]::Max(0, $view.Count - 1), $state.Cursor + $frame.Rows) }
-            'Home' { $state.Cursor = 0 }
-            'End' { $state.Cursor = [Math]::Max(0, $view.Count - 1) }
-            'Spacebar' { if ($Multi -and $view.Count) { $i = $view[$state.Cursor]; if ($chosen.ContainsKey($i)) { $chosen.Remove($i) } else { $chosen[$i] = $true } } }
-            'Escape' { if ($state.Filter) { $state.Filter = '' } else { Clear-Host; return $null } }
-            'Enter' {
-                if ($view.Count -eq 0) { continue }
-                Clear-Host
-                if (-not $Multi) { return $Items[$view[$state.Cursor]] }
-                if ($chosen.Count -eq 0) { return @($Items[$view[$state.Cursor]]) }
-                return @($chosen.Keys | Sort-Object | ForEach-Object { $Items[$_] })
-            }
-            default {
-                if ($key.KeyChar -eq '/') { $state.Typing = $true }
-                elseif ($Multi -and ($key.KeyChar -eq 'a' -or $key.KeyChar -eq 'A')) {
-                    $allChosen = @($view | Where-Object { $chosen.ContainsKey($_) }).Count -eq $view.Count
-                    foreach ($i in $view) { if ($allChosen) { $chosen.Remove($i) } else { $chosen[$i] = $true } }
-                }
-                elseif ($key.KeyChar -eq 'k') { if ($state.Cursor -gt 0) { $state.Cursor-- } }
-                elseif ($key.KeyChar -eq 'j') { if ($state.Cursor -lt $view.Count - 1) { $state.Cursor++ } }
-            }
-        }
+        Write-Frame $frame.Lines $shown $origin $state.Width $state.Height
+        # apply every key already waiting before drawing again, so holding an arrow key never queues redraws
+        do {
+            $done = Step-Picker $state $frame ([Console]::ReadKey($true))
+            if ($done) { Clear-Host; return $done.Value }
+            $frame = Format-PickerFrame $state
+        } while ([Console]::KeyAvailable)
     }
 }
 
@@ -938,7 +1033,9 @@ function Show-RescueFlow {
     Say 'Looking for chats that no sidebar lists...' 'DarkGray'
     $orphans = @(Get-Orphans)
     if (-not $orphans) { Ok 'Every chat history on this computer is in a sidebar.'; return }
-    $picked = @(Show-Picker -Title "$($orphans.Count) chat(s) are on disk but in no sidebar" -Items (Get-OrphanItems $orphans) -Multi -Note 'Some may be chats you deleted on purpose, pick the ones you want back')
+    $note = 'Some may be chats you deleted on purpose. To bring a chat from another account, use Move or copy chats.'
+    if ($Script:HiddenParts) { $note = "$($Script:HiddenParts) older part(s) of existing chats are hidden. " + $note }
+    $picked = @(Show-Picker -Title "$($orphans.Count) chat(s) are on disk but in no sidebar" -Items (Get-OrphanItems $orphans) -Multi -Note $note)
     if (-not $picked -or -not $picked[0]) { return }
     $spaces = @(Get-Spaces)
     if (-not $spaces) { Fail 'Sign in to Claude Desktop once so it creates a chat list, then try again.'; return }
@@ -1116,6 +1213,7 @@ function Invoke-RescueCommand {
             Write-Host "  $($G.Dot) $($o.Project) $($G.Dot) $(Format-Ago $o.Last)" -ForegroundColor DarkGray
         }
         Info 'Recover with: claude-switcher rescue -To <account> -Chat <id>[,<id>]  (or -All)'
+        if ($Script:HiddenParts) { Info "$($Script:HiddenParts) older part(s) of chats that already exist are not listed." }
         return
     }
     $picked = if ($All) { $orphans } else {

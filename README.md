@@ -26,7 +26,7 @@ Then open a new terminal and run `claude-switcher`.
   <img src="./assets/readme/menu.svg" width="100%" alt="The Claude Switcher menu: switch account, add another account, move or copy chats between accounts, bring every chat into one account, recover chats missing from the sidebar, undo, save, rename, and check my setup">
 </p>
 
-Arrow keys to move, Enter to choose, `/` to search, Esc to go back. Every item is also a command for scripts.
+Arrow keys to move, Enter to choose, just start typing to search, Esc to go back. Every item is also a command for scripts.
 
 ## Move exactly the chats you want
 
@@ -34,7 +34,7 @@ Arrow keys to move, Enter to choose, `/` to search, Esc to go back. Every item i
   <img src="./assets/readme/chats.svg" width="100%" alt="The chat picker lists every Claude Code chat in the work account with its project and age; three chats are selected">
 </p>
 
-Pick an account, tick chats with Space, choose where they go, then **copy** them (they show up in both accounts) or **move** them (they leave the first one). Titles in any language work, and chats whose history Claude Code already deleted are marked so you can leave them behind.
+Pick an account, tick chats with Space (Ctrl+A for all), choose where they go, then **copy** them (they show up in both accounts) or **move** them (they leave the first one). Titles in any language work, and chats whose history Claude Code already deleted are marked so you can leave them behind.
 
 ## Get lost chats back
 
@@ -42,7 +42,7 @@ Pick an account, tick chats with Space, choose where they go, then **copy** them
   <img src="./assets/readme/rescue.svg" width="100%" alt="Four chats are on disk but in no sidebar; two are selected to recover">
 </p>
 
-Claude Code keeps every conversation in `%USERPROFILE%\.claude\projects`, but the sidebar only shows chats it has a record for. After an account switch, a reinstall, or a sync trick that went wrong, those records go missing while the history is still there. **Recover** finds every history no account lists and rebuilds its sidebar entry with the right title, project, model and dates. Sessions you ran in a terminal show up too.
+Claude Code keeps every conversation in `%USERPROFILE%\.claude\projects`, but the sidebar only shows chats it has a record for. After an account switch, a reinstall, or a sync trick that went wrong, those records go missing while the history is still there. **Recover** finds every history no account lists and rebuilds its sidebar entry with the right title, project, model and dates. A Desktop chat is often several history files (a `/clear` or a restart starts a new one under the same title), so older parts of chats you still have, and chats you deleted in the app, are left out, and a lost chat comes back once. Sessions you ran in a terminal show up too.
 
 ## What you can do
 
