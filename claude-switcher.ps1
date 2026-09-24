@@ -28,7 +28,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Script:Version = '2.0.1'
+$Script:Version = '2.0.2'
 $Script:RepoUrl = 'https://github.com/nyxon-tech/claude-switcher'
 
 # ------------------------------------------------------------------ discovery
@@ -818,10 +818,17 @@ function Format-PickerFrame($State) {
     [pscustomobject]@{ Lines = $lines; View = $view; Rows = $rows }
 }
 
+# The segments of one row. The comma keeps a row that holds a single segment wrapped, otherwise
+# PowerShell unrolls it into that segment's text and colour.
+function Get-RowSegments($Lines, [int]$Row) {
+    if ($Row -ge $Lines.Count) { return , @() }
+    return , $Lines[$Row]
+}
+
 # Draws only the rows that changed since the last frame
 function Write-Frame($Lines, $Shown, [int]$Origin, [int]$Width, [int]$Height) {
     for ($row = 0; $row -lt $Height; $row++) {
-        $segs = if ($row -lt $Lines.Count) { $Lines[$row] } else { @() }
+        $segs = Get-RowSegments $Lines $row
         $drawn = @($segs | ForEach-Object { "$($_[1]):$($_[0])" }) -join '|'
         if ($Shown.ContainsKey($row) -and $Shown[$row] -eq $drawn) { continue }
         $Shown[$row] = $drawn

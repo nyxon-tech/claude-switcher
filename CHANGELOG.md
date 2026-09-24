@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.2
+
+### Fixed
+- 2.0.1 stopped with `Cannot convert value " " to type "System.ConsoleColor"` as soon as the menu opened. Rows holding a single coloured segment were unrolled into that segment's text and colour, so a character of the text was read as a colour. `tests/console.ps1` now draws the menu in a real console window, which the fixture tests cannot do.
+
 ## 2.0.1
 
 ### Fixed

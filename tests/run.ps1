@@ -210,6 +210,14 @@ $segments = @($frames | ForEach-Object { $_ } | ForEach-Object { $_ })
 $colors = [Enum]::GetNames([ConsoleColor])
 Check 'every menu segment names a console colour' (@($segments | Where-Object { $_ -and $colors -notcontains [string]$_[1] }).Count -eq 0)
 Check 'no menu line is wider than the window' (@($frames | ForEach-Object { $_ } | Where-Object { (@($_ | ForEach-Object { ([string]$_[0]).Length }) | Measure-Object -Sum).Sum -gt 70 }).Count -eq 0)
+$rows = & {
+    . ([scriptblock]::Create($source)) -Command 'noop' -ClaudeDir $live -InstanceDir $vault -ProjectsDir $projects
+    $state = @{ Title = 'What would you like to do?'; Items = (Get-MenuItems); Multi = $false; Note = 'note'; Chosen = @{}; Cursor = 0; Top = 0; Filter = ''; Typing = $false; Status = 'status'; Width = 70; Height = 16 }
+    $lines = (Format-PickerFrame $state).Lines
+    foreach ($row in 0..17) { , (Get-RowSegments $lines $row) }
+}
+$bad = @($rows | ForEach-Object { foreach ($seg in $_) { if (-not ($seg -is [array] -and $seg.Count -eq 2 -and $colors -contains [string]$seg[1])) { $seg } } })
+Check 'rows with a single segment are drawn as text and colour, not unrolled' ($rows.Count -eq 18 -and $bad.Count -eq 0)
 Check 'menu details are drawn, not swallowed into the label' (@($segments | Where-Object { [string]$_[0] -match 'DarkGray' }).Count -eq 0)
 
 Write-Host "`nmenu keys" -ForegroundColor Cyan

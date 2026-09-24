@@ -157,6 +157,8 @@ pwsh -File tests/run.ps1
 powershell -File tests/run.ps1
 ```
 
+`tests/console.ps1` draws the menu in a real console window, which the fixture tests cannot; run it from a terminal before a release.
+
 The images in this README are drawn by the menu code itself from demo data: `pwsh tools/render-readme.ps1`.
 
 <p align="center">
