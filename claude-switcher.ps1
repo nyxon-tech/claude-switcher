@@ -28,7 +28,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Script:Version = '2.0.2'
+$Script:Version = '2.0.3'
 $Script:RepoUrl = 'https://github.com/nyxon-tech/claude-switcher'
 
 # ------------------------------------------------------------------ discovery
@@ -385,13 +385,19 @@ function Get-Spaces {
     return $out
 }
 
+# When a chat was last used. Two accounts can hold the same chat at different points in it.
+function Get-CardLast($Card) {
+    if ($Card.lastActivityAt) { return [int64]$Card.lastActivityAt }
+    if ($Card.createdAt) { return [int64]$Card.createdAt }
+    return [int64]0
+}
+
 function Get-Chats([string]$Dir) {
     $index = Get-TranscriptIndex
     $chats = foreach ($file in @(Get-ChildItem $Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
         $card = Read-Json $file.FullName
         if (-not $card) { continue }
-        $last = 0
-        if ($card.lastActivityAt) { $last = [int64]$card.lastActivityAt } elseif ($card.createdAt) { $last = [int64]$card.createdAt }
+        $last = Get-CardLast $card
         $cwd = [string]$card.cwd
         [pscustomobject]@{
             Id         = $file.BaseName
@@ -497,15 +503,19 @@ function Invoke-Transfer($Source, $Target, [object[]]$Chats, [bool]$MoveThem) {
     if (-not (Confirm-Action "$(if ($MoveThem) { 'Move' } else { 'Copy' }) $($Chats.Count) chat(s) from $($Source.Label) to $($Target.Label)?")) { return }
     if (-not (Wait-ClaudeClosed)) { return }
     $journal = New-Journal $(if ($MoveThem) { 'move' } else { 'copy' })
-    $written = 0; $present = 0
+    $updated = 0; $present = 0
     foreach ($chat in $Chats) {
         $dest = "$($Target.Dir)\$($chat.Id).json"
-        if (Test-Path -LiteralPath $dest) { $present++ }
-        else {
+        if (-not (Test-Path -LiteralPath $dest)) {
             Copy-Item -LiteralPath $chat.File $dest
             Add-JournalCreated $journal $dest
-            $written++
         }
+        elseif ($chat.Last -gt (Get-CardLast (Read-Json $dest))) {
+            Add-JournalRemoved $journal $dest
+            Copy-Item -LiteralPath $chat.File $dest -Force
+            $updated++
+        }
+        else { $present++ }
         if ($MoveThem) {
             Add-JournalRemoved $journal $chat.File
             Remove-Item -LiteralPath $chat.File -Force
@@ -514,30 +524,32 @@ function Invoke-Transfer($Source, $Target, [object[]]$Chats, [bool]$MoveThem) {
     $summary = "$verb $($Chats.Count) chat(s) from $($Source.Label) to $($Target.Label)"
     Save-Journal $journal $summary
     Ok $summary
-    if ($present) { Info "$present were already in $($Target.Label) and were left as they are." }
+    if ($updated) { Info "$updated had an older copy in $($Target.Label), now brought up to date." }
+    if ($present) { Info "$present were already up to date in $($Target.Label) and were left as they are." }
     Info 'Undo with: claude-switcher undo'
     Start-Claude
 }
 
-# Copy every chat the target does not have yet, newest copy wins when several accounts hold it
+# Copy every chat the target does not have yet or has an older copy of; newest copy wins when several accounts hold it
 function Invoke-Merge($Target, [object[]]$Spaces) {
     $have = @{}
-    foreach ($f in @(Get-ChildItem $Target.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) { $have[$f.Name] = $true }
+    foreach ($f in @(Get-ChildItem $Target.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) { $have[$f.Name] = Get-CardLast (Read-Json $f.FullName) }
     $newest = @{}
     foreach ($space in @($Spaces | Where-Object { $_.Dir -ne $Target.Dir })) {
         foreach ($f in @(Get-ChildItem $space.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
-            if ($have.ContainsKey($f.Name)) { continue }
-            if (-not $newest.ContainsKey($f.Name) -or $f.LastWriteTime -gt $newest[$f.Name].LastWriteTime) { $newest[$f.Name] = $f }
+            $last = Get-CardLast (Read-Json $f.FullName)
+            if ($have.ContainsKey($f.Name) -and $last -le $have[$f.Name]) { continue }
+            if (-not $newest.ContainsKey($f.Name) -or $last -gt $newest[$f.Name].Last) { $newest[$f.Name] = [pscustomobject]@{ File = $f; Last = $last } }
         }
     }
     if ($newest.Count -eq 0) { Ok "$($Target.Label) already has every chat."; return }
     if (-not (Confirm-Action "Copy $($newest.Count) chat(s) into $($Target.Label)?")) { return }
     if (-not (Wait-ClaudeClosed)) { return }
     $journal = New-Journal 'merge'
-    foreach ($f in $newest.Values) {
-        $dest = "$($Target.Dir)\$($f.Name)"
-        Copy-Item -LiteralPath $f.FullName $dest
-        Add-JournalCreated $journal $dest
+    foreach ($pick in $newest.Values) {
+        $dest = "$($Target.Dir)\$($pick.File.Name)"
+        if ($have.ContainsKey($pick.File.Name)) { Add-JournalRemoved $journal $dest } else { Add-JournalCreated $journal $dest }
+        Copy-Item -LiteralPath $pick.File.FullName $dest -Force
     }
     $summary = "Copied $($newest.Count) chat(s) into $($Target.Label)"
     Save-Journal $journal $summary
@@ -966,7 +978,7 @@ function Get-MenuItems {
         [pscustomobject]@{ Label = 'Switch account'; Detail = $(if ($current) { "now: $current" } else { 'save an account first' }); Value = 'switch' },
         [pscustomobject]@{ Label = 'Add another account'; Detail = 'sign in once, switch forever'; Value = 'add' },
         [pscustomobject]@{ Label = 'Move or copy chats between accounts'; Detail = 'pick chats one by one'; Value = 'chats' },
-        [pscustomobject]@{ Label = 'Bring every chat into one account'; Detail = 'copies what is missing'; Value = 'merge' },
+        [pscustomobject]@{ Label = 'Bring every chat into one account'; Detail = 'copies what is missing or older'; Value = 'merge' },
         [pscustomobject]@{ Label = 'Recover chats missing from the sidebar'; Detail = 'rebuilds them from history'; Value = 'rescue' },
         [pscustomobject]@{ Label = 'Undo the last chat change'; Detail = $(if ($last) { [string]$last.summary } else { 'nothing to undo' }); Value = 'undo' },
         [pscustomobject]@{ Label = 'Save the signed-in account'; Detail = 'or refresh a saved one'; Value = 'save' },
@@ -1148,7 +1160,7 @@ function Show-Help {
         @('chats <account>', 'chats in one account'),
         @('copy -From <a> -To <b> -Chat <id>[,<id>]', 'copy chats (or -All)'),
         @('move -From <a> -To <b> -Chat <id>[,<id>]', 'move chats (or -All)'),
-        @('merge -To <account>', 'copy every missing chat into one account'),
+        @('merge -To <account>', 'copy every missing or newer chat into one account'),
         @('rescue [-To <account>] [-All | -Chat <id>]', 'recover chats missing from every sidebar'),
         @('undo', 'undo the last chat change'),
         @('doctor', 'check the setup'),

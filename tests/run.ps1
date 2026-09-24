@@ -121,6 +121,19 @@ $out = Run merge -To work
 Check 'merge copies only what the target is missing' ((Test-Path "$workDir\local_c3.json") -and ([IO.File]::ReadAllText("$workDir\local_c1.json") -match 'Design review"'))
 $out = Run undo
 Check 'undo of a merge restores the target' ((Hash $workDir) -eq $workBefore)
+$out = Run copy -From personal -To work -Chat c1
+Check 'copy leaves a newer copy in the target alone' ((Hash $workDir) -eq $workBefore -and $out -match 'already up to date')
+
+Card $PERS 'c1' $s1 'Design review (continued)' $now
+$out = Run copy -From personal -To work -Chat c1
+Check 'copy brings an older copy in the target up to date' ([IO.File]::ReadAllText("$workDir\local_c1.json") -match 'continued' -and $out -match 'older copy')
+$out = Run undo
+Check 'undo of that copy restores the older copy byte for byte' ((Hash $workDir) -eq $workBefore)
+$out = Run merge -To work
+Check 'merge brings older copies up to date too' ([IO.File]::ReadAllText("$workDir\local_c1.json") -match 'continued' -and (Test-Path "$workDir\local_c3.json"))
+$out = Run undo
+Check 'undo of that merge restores the target' ((Hash $workDir) -eq $workBefore)
+Card $PERS 'c1' $s1 'Design review (older copy)' ($now - 9999999)
 
 Write-Host "`nrescue" -ForegroundColor Cyan
 $o1 = '20000000-0000-4000-8000-000000000001'; $o2 = '20000000-0000-4000-8000-000000000002'

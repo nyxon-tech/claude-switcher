@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.3
+
+### Fixed
+- Copying a chat the other account already had did nothing, even when your copy was newer: it said the chat was `already in` that account and left the old one. A chat continued in one account (a resume or a restart points its sidebar record at a newer history file) now replaces the older copy, and undo puts the older one back. Merge does the same. A copy that is newer in the target is still left alone.
+
 ## 2.0.2
 
 ### Fixed

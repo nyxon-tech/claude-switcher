@@ -34,7 +34,7 @@ Arrow keys to move, Enter to choose, just start typing to search, Esc to go back
   <img src="./assets/readme/chats.svg" width="100%" alt="The chat picker lists every Claude Code chat in the work account with its project and age; three chats are selected">
 </p>
 
-Pick an account, tick chats with Space (Ctrl+A for all), choose where they go, then **copy** them (they show up in both accounts) or **move** them (they leave the first one). Titles in any language work, and chats whose history Claude Code already deleted are marked so you can leave them behind.
+Pick an account, tick chats with Space (Ctrl+A for all), choose where they go, then **copy** them (they show up in both accounts) or **move** them (they leave the first one). A chat the other account already has is brought up to date when your copy is newer, so a chat you kept working on in one account carries over. Titles in any language work, and chats whose history Claude Code already deleted are marked so you can leave them behind.
 
 ## Get lost chats back
 
@@ -51,7 +51,7 @@ Claude Code keeps every conversation in `%USERPROFILE%\.claude\projects`, but th
 | **Switch account** | Swap to another saved login and reopen Claude Desktop. No password, no email code. |
 | **Add an account** | Saves the current login, then opens Desktop signed out so you can add the next one, without ever pressing Log out. |
 | **Move or copy chats** | Chat by chat, with search, between any two accounts on this PC. |
-| **Merge** | Copy every chat an account is missing from all the others in one go. |
+| **Merge** | Copy every chat an account is missing, or has an older copy of, from all the others in one go. |
 | **Recover** | Rebuild sidebar entries for chats that only exist as history on disk. |
 | **Undo** | Reverse the last move, copy, merge or recovery exactly. |
 | **Doctor** | Checks the install, the signed-in account and every chat list, and warns about settings that silently delete history. |
@@ -83,7 +83,7 @@ claude-switcher accounts                         chat lists on this computer, wi
 claude-switcher chats <account>                  chats in one account, with ids
 claude-switcher copy -From <a> -To <b> -Chat <id>[,<id>]   copy chats (or -All)
 claude-switcher move -From <a> -To <b> -Chat <id>[,<id>]   move chats (or -All)
-claude-switcher merge -To <account>              copy every missing chat into one account
+claude-switcher merge -To <account>              copy every missing or newer chat into one account
 claude-switcher rescue [-To <account>] [-All | -Chat <id>] recover chats missing from every sidebar
 claude-switcher undo                             undo the last chat change
 claude-switcher doctor                           check the setup
