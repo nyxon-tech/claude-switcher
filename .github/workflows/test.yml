@@ -1,0 +1,24 @@
+name: test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests in PowerShell 7
+        shell: pwsh
+        run: ./tests/run.ps1
+      - name: Tests in Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/run.ps1
+      - name: Install from this checkout and run the command
+        shell: pwsh
+        run: |
+          ./install.ps1 -NoShortcut
+          & "$env:LOCALAPPDATA\Programs\claude-switcher\claude-switcher.cmd" version
+          & "$env:LOCALAPPDATA\Programs\claude-switcher\claude-switcher.cmd" help
+          ./install.ps1 -Uninstall

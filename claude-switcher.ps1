@@ -1,23 +1,37 @@
+#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Claude Desktop Profile Switcher - Switch between multiple Claude accounts
+    Claude Switcher by Nyxon - switch Claude Desktop accounts on Windows without signing in again,
+    and move your Claude Code chats between them.
 .DESCRIPTION
-    Swaps all Electron session files (auth tokens, cookies, local storage, etc.)
-    to switch between different Claude accounts without re-logging in.
-    Keeps vm_bundles (12GB+ Cowork VM) shared across profiles.
-.NOTES
-    Version: 1.1.0
-    Requires: Windows 10/11, Claude Desktop 1.1.x+ (Microsoft Store or standalone installer)
-    Admin may be needed for Cowork VM sessiondata repair (diskpart)
-#>
+    Run it with no arguments for the interactive menu. Every menu action is also a command,
+    see `claude-switcher help`.
 
+    Built on NeezerGu/claude-profile-switcher (MIT). Unofficial, not affiliated with Anthropic.
+.LINK
+    https://github.com/nyxon-tech/claude-switcher
+#>
+[CmdletBinding()]
 param(
-    [Parameter(Position=0)] [string]$Action = "list",
-    [Parameter(Position=1)] [string]$Name = "",
-    [string]$ClaudeDir = "",
-    [string]$InstanceDir = "",
-    [switch]$NoRestart
+    [Parameter(Position = 0)] [string]$Command = '',
+    [Parameter(Position = 1)] [string]$Name = '',
+    [Parameter(Position = 2)] [string]$NewName = '',
+    [string]$From = '',
+    [string]$To = '',
+    [string[]]$Chat = @(),
+    [switch]$All,
+    [switch]$Yes,
+    [switch]$NoRestart,
+    [string]$ClaudeDir = '',
+    [string]$InstanceDir = '',
+    [string]$ProjectsDir = ''
 )
+
+$ErrorActionPreference = 'Stop'
+$Script:Version = '2.0.0'
+$Script:RepoUrl = 'https://github.com/nyxon-tech/claude-switcher'
+
+# ------------------------------------------------------------------ discovery
 
 # Microsoft Store (MSIX) installs keep app data in the package's LocalCache, not %APPDATA%
 function Find-ClaudeDir {
@@ -27,393 +41,1117 @@ function Find-ClaudeDir {
     return "$env:APPDATA\Claude"
 }
 
-# === Config ===
-$claudeDir = if ($ClaudeDir) { $ClaudeDir } else { Find-ClaudeDir }
-$instanceDir = if ($InstanceDir) { $InstanceDir } else { "$env:USERPROFILE\.claude-instances" }
-$currentFile = "$instanceDir\_current_profile"
+$Script:LiveDir = Find-ClaudeDir
+$Script:Data = if ($ClaudeDir) { $ClaudeDir } else { $Script:LiveDir }
+$Script:Vault = if ($InstanceDir) { $InstanceDir } else { "$env:USERPROFILE\.claude-instances" }
+$Script:Projects = if ($ProjectsDir) { $ProjectsDir } else { "$env:USERPROFILE\.claude\projects" }
+$Script:Sessions = "$($Script:Data)\claude-code-sessions"
+$Script:CurrentFile = "$($Script:Vault)\_current_profile"
+$Script:JournalDir = "$($Script:Vault)\_journal"
+$Script:IsLive = ($Script:Data -eq $Script:LiveDir)
+$Script:Interactive = -not ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected)
+$Script:Utf8 = New-Object System.Text.UTF8Encoding $false
+$Script:TxIndex = $null
 
-# Session files to swap per profile (everything auth/session related, ~5MB total)
-# These store OAuth tokens, cookies, and browser session state
-$sessionFiles = @(
-    "config.json",       # OAuth token
-    "Preferences",       # Electron preferences
-    "DIPS",              # Bounce tracking DB
-    "DIPS-wal",
-    "SharedStorage",     # Shared storage DB
-    "SharedStorage-wal",
-    "ant-did",           # Anthropic device ID
-    "buddy-tokens.json", # Per-account tokens (Claude Desktop 2.x)
-    "plan-usage-history.json"
+# Everything that makes Desktop "signed in" as one account. Swapped per profile, about 5 MB.
+$Script:SessionFiles = @(
+    'config.json',              # OAuth token and app settings
+    'Preferences',
+    'DIPS', 'DIPS-wal',
+    'SharedStorage', 'SharedStorage-wal',
+    'ant-did',                  # device id
+    'buddy-tokens.json',        # per-account tokens, Desktop 2.x
+    'plan-usage-history.json'
 )
-$sessionDirs = @(
-    "Local Storage",     # localStorage (auth state)
-    "Session Storage",   # sessionStorage
-    "Network",           # Cookies, HSTS, etc.
-    "IndexedDB",         # IndexedDB databases
-    "WebStorage"         # Web storage
-)
+$Script:SessionDirs = @('Local Storage', 'Session Storage', 'Network', 'IndexedDB', 'WebStorage')
+# Never swapped: vm_bundles (Cowork VM), claude_desktop_config.json (MCP servers), Local State (DPAPI key),
+# claude-code-sessions (Desktop already keeps it per account), caches.
 
-# Files that are SHARED across profiles (never swapped):
-#   vm_bundles/       - 12GB+ Cowork VM (file-locked by Hyper-V)
-#   claude_desktop_config.json - MCP server config
-#   Local State       - DPAPI encryption key
-#   claude-code-sessions/ - already kept per account by Claude Desktop itself
-#   Cache/, Code Cache/, GPUCache/ - runtime caches
-
-# === Helpers ===
-function Write-OK   { param($m) Write-Host "  [OK] $m" -ForegroundColor Green }
-function Write-Err  { param($m) Write-Host "  [ERR] $m" -ForegroundColor Red }
-function Write-Warn { param($m) Write-Host "  [!] $m" -ForegroundColor Yellow }
-function Write-Info { param($m) Write-Host "  [i] $m" -ForegroundColor DarkCyan }
-
-function Get-CurrentProfile {
-    if (Test-Path $currentFile) { return (Get-Content $currentFile -Raw).Trim() }
-    return $null
+$Script:G = @{
+    Ptr  = [string][char]0x203A
+    On   = [string][char]0x25CF
+    Off  = [string][char]0x25CB
+    Dot  = [string][char]0x00B7
+    Dash = [string][char]0x2014
 }
+
+# ------------------------------------------------------------------ output
+
+function Say([string]$Text, [string]$Color = 'Gray') { Write-Host "  $Text" -ForegroundColor $Color }
+function Ok([string]$Text) { Write-Host "  $($G.On) $Text" -ForegroundColor Green }
+function Warn([string]$Text) { Write-Host "  ! $Text" -ForegroundColor Yellow }
+function Fail([string]$Text) { Write-Host "  x $Text" -ForegroundColor Red }
+function Info([string]$Text) { Write-Host "  $Text" -ForegroundColor DarkGray }
+
+function Short([string]$Text) { if ($Text.Length -gt 8) { $Text.Substring(0, 8) } else { $Text } }
+
+function Format-Ago([int64]$Ms) {
+    if ($Ms -le 0) { return '' }
+    $span = (Get-Date) - [DateTimeOffset]::FromUnixTimeMilliseconds($Ms).LocalDateTime
+    if ($span.TotalMinutes -lt 60) { return "$([int][Math]::Max(1, $span.TotalMinutes))m ago" }
+    if ($span.TotalHours -lt 24) { return "$([int]$span.TotalHours)h ago" }
+    if ($span.TotalDays -lt 60) { return "$([int]$span.TotalDays)d ago" }
+    return [DateTimeOffset]::FromUnixTimeMilliseconds($Ms).LocalDateTime.ToString('yyyy-MM-dd')
+}
+
+# Titles are user text: no line breaks, no astral characters that break terminal column math
+function Format-Title($Text) {
+    $s = (([string]$Text) -replace '[\r\n\t]+', ' ' -replace '\p{Cs}', '').Trim()
+    if ($s) { $s } else { '(untitled)' }
+}
+
+# ------------------------------------------------------------------ files
+
+function Read-Json([string]$Path) {
+    try { return ([IO.File]::ReadAllText($Path, $Script:Utf8) | ConvertFrom-Json) } catch { return $null }
+}
+
+# Desktop parses its records with JSON.parse, which rejects a byte order mark
+function Write-Text([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, $Script:Utf8) }
+
+function Read-Line([string]$Path) {
+    if (Test-Path -LiteralPath $Path) { return ([IO.File]::ReadAllText($Path, $Script:Utf8)).Trim() }
+    return ''
+}
+
+# ------------------------------------------------------------------ profiles
+
+function Get-LiveAccount {
+    $config = Read-Json "$($Script:Data)\config.json"
+    if ($config -and $config.lastKnownAccountUuid) { return [string]$config.lastKnownAccountUuid }
+    return ''
+}
+
+function Get-CurrentProfile { Read-Line $Script:CurrentFile }
 
 function Get-Profiles {
-    $profiles = @()
-    if (Test-Path $instanceDir) {
-        Get-ChildItem -Path $instanceDir -Directory | Where-Object {
-            $_.Name -notmatch '^_' -and (Test-Path "$($_.FullName)\config.json")
-        } | ForEach-Object { $profiles += $_.Name }
-    }
-    return $profiles
+    if (-not (Test-Path $Script:Vault)) { return @() }
+    @(Get-ChildItem $Script:Vault -Directory | Where-Object {
+        $_.Name -notmatch '^_' -and (Test-Path "$($_.FullName)\config.json")
+    } | ForEach-Object {
+        [pscustomobject]@{
+            Name    = $_.Name
+            Account = Read-Line "$($_.FullName)\_account"
+            Dir     = $_.FullName
+            Saved   = (Get-Item "$($_.FullName)\config.json").LastWriteTime
+        }
+    })
 }
 
-# The account Claude Desktop is signed into right now (an id, not a secret)
-function Get-LiveAccount {
-    try { return (Get-Content "$claudeDir\config.json" -Raw | ConvertFrom-Json).lastKnownAccountUuid } catch { return $null }
+function Find-Profile([string]$ProfileName) {
+    @(Get-Profiles | Where-Object { $_.Name -eq $ProfileName }) | Select-Object -First 1
 }
 
-function Get-ProfileAccount {
-    param([string]$profileName)
-    $file = "$instanceDir\$profileName\_account"
-    if (Test-Path $file) { return (Get-Content $file -Raw).Trim() }
-    return $null
+function Test-ProfileName([string]$ProfileName) {
+    if ($ProfileName -match '^[\p{L}\p{N}](?:[\p{L}\p{N} ._-]{0,38}[\p{L}\p{N}_-])?$') { return $true }
+    Fail "Use letters, digits, spaces, dot, dash or underscore for a profile name (up to 40), not '$ProfileName'."
+    return $false
 }
 
-# Refuse to save over a profile when Desktop was signed into another account by hand
-function Test-CurrentMatches {
-    param([string]$profileName)
-    $recorded = Get-ProfileAccount $profileName
+# A profile is only saved over when Desktop is still signed into that profile's account
+function Test-CurrentMatches([string]$ProfileName) {
+    $recorded = Read-Line "$($Script:Vault)\$ProfileName\_account"
     $live = Get-LiveAccount
     if ($recorded -and $live -and $recorded -ne $live) {
-        Write-Err "Claude Desktop is signed into a different account than profile '$profileName'."
-        Write-Err "Nothing was changed. Save this login under its own name first: create <name>"
+        Fail "Claude Desktop is signed into a different account than profile '$ProfileName'."
+        Fail 'Nothing was changed. Save this login under its own name first: claude-switcher save <name>'
         return $false
     }
     return $true
 }
 
-function Save-Session {
-    param([string]$profileName)
-    $dest = "$instanceDir\$profileName"
-    if (!(Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-
-    foreach ($f in $sessionFiles) {
-        $src = "$claudeDir\$f"
-        if (Test-Path $src) { Copy-Item $src "$dest\$f" -Force }
-        else { Remove-Item "$dest\$f" -Force -ErrorAction SilentlyContinue }
+function Save-Session([string]$ProfileName) {
+    $dest = "$($Script:Vault)\$ProfileName"
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    foreach ($f in $Script:SessionFiles) {
+        $src = "$($Script:Data)\$f"
+        if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src "$dest\$f" -Force }
+        else { Remove-Item -LiteralPath "$dest\$f" -Force -ErrorAction SilentlyContinue }
     }
-    foreach ($d in $sessionDirs) {
-        $src = "$claudeDir\$d"
-        $dDest = "$dest\$d"
-        if (Test-Path $dDest) { Remove-Item $dDest -Recurse -Force }
-        if (Test-Path $src) { Copy-Item $src $dDest -Recurse -Force }
+    foreach ($d in $Script:SessionDirs) {
+        if (Test-Path -LiteralPath "$dest\$d") { Remove-Item -LiteralPath "$dest\$d" -Recurse -Force }
+        if (Test-Path -LiteralPath "$($Script:Data)\$d") { Copy-Item -LiteralPath "$($Script:Data)\$d" "$dest\$d" -Recurse -Force }
     }
     $account = Get-LiveAccount
-    if ($account) { Set-Content -Path "$dest\_account" -Value $account -NoNewline }
+    if ($account) { Write-Text "$dest\_account" $account }
 }
 
 # Remove every session file so nothing from the previous account lingers (stale -wal files included)
 function Clear-Session {
-    foreach ($f in $sessionFiles) { Remove-Item "$claudeDir\$f" -Force -ErrorAction SilentlyContinue }
-    foreach ($d in $sessionDirs) { Remove-Item "$claudeDir\$d" -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($f in $Script:SessionFiles) { Remove-Item -LiteralPath "$($Script:Data)\$f" -Force -ErrorAction SilentlyContinue }
+    foreach ($d in $Script:SessionDirs) { Remove-Item -LiteralPath "$($Script:Data)\$d" -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-function Load-Session {
-    param([string]$profileName)
-    $src = "$instanceDir\$profileName"
+function Restore-Session([string]$ProfileName) {
+    $src = "$($Script:Vault)\$ProfileName"
     Clear-Session
-    foreach ($f in $sessionFiles) {
-        $fSrc = "$src\$f"
-        if (Test-Path $fSrc) { Copy-Item $fSrc "$claudeDir\$f" -Force }
+    foreach ($f in $Script:SessionFiles) {
+        if (Test-Path -LiteralPath "$src\$f") { Copy-Item -LiteralPath "$src\$f" "$($Script:Data)\$f" -Force }
     }
-    foreach ($d in $sessionDirs) {
-        $dSrc = "$src\$d"
-        if (Test-Path $dSrc) { Copy-Item $dSrc "$claudeDir\$d" -Recurse -Force }
+    foreach ($d in $Script:SessionDirs) {
+        if (Test-Path -LiteralPath "$src\$d") { Copy-Item -LiteralPath "$src\$d" "$($Script:Data)\$d" -Recurse -Force }
     }
 }
+
+function Set-CurrentProfile([string]$ProfileName) {
+    New-Item -ItemType Directory -Path $Script:Vault -Force | Out-Null
+    Write-Text $Script:CurrentFile $ProfileName
+}
+
+# ------------------------------------------------------------------ Claude Desktop process
 
 # Only the Desktop app itself; a Claude Code CLI in a terminal is also named claude.exe
 function Get-DesktopProcesses {
-    Get-Process -Name "Claude" -ErrorAction SilentlyContinue | Where-Object {
+    @(Get-Process -Name 'Claude' -ErrorAction SilentlyContinue | Where-Object {
         -not $_.Path -or $_.Path -like '*\WindowsApps\Claude_*' -or $_.Path -like '*\AnthropicClaude\*'
-    }
+    })
 }
 
-function Stop-ClaudeGracefully {
-    Write-Host ""
-    if ($claudeDir -ne (Find-ClaudeDir)) {
-        Write-Info "Not the live Claude Desktop folder, skipping the running check"
-        return $true
-    }
-    if (-not (Get-DesktopProcesses)) {
-        Write-OK "Claude Desktop is not running"
-        return $true
-    }
+function Test-ClaudeRunning { $Script:IsLive -and (Get-DesktopProcesses).Count -gt 0 }
 
-    Write-Warn "Please close Claude Desktop manually:"
-    Write-Warn "  RIGHT-CLICK system tray icon -> Quit"
-    Write-Info "Waiting for Claude to exit... (no timeout)"
-    Write-Host ""
-
-    # vmwp is any Hyper-V VM (WSL2, Docker too); only wait for it when Cowork's VM exists
-    $coworkVM = Test-Path "$claudeDir\vm_bundles\claudevm.bundle"
-    $elapsed = 0
+function Wait-ClaudeClosed {
+    if (-not $Script:IsLive -or (Get-DesktopProcesses).Count -eq 0) { return $true }
+    Write-Host ''
+    Warn 'Claude Desktop is open. Quit it from the tray: right-click the Claude icon next to the clock, then Quit.'
+    if ($Script:Interactive) { Info 'Waiting for it to close. Press Esc to cancel.' } else { Info 'Waiting for it to close.' }
+    # vmwp belongs to every Hyper-V VM (WSL2, Docker too); only wait for it when Cowork's VM exists
+    $coworkVM = Test-Path "$($Script:Data)\vm_bundles\claudevm.bundle"
     while ($true) {
-        Start-Sleep -Seconds 1
-        $elapsed++
-
-        $cAlive = [bool](Get-DesktopProcesses)
-        $vAlive = $coworkVM -and [bool](Get-Process -Name "vmwp" -ErrorAction SilentlyContinue)
-
-        if (-not $cAlive -and -not $vAlive) {
-            Write-OK "Claude exited cleanly (${elapsed}s)"
+        Start-Sleep -Milliseconds 500
+        if ($Script:Interactive -and [Console]::KeyAvailable -and [Console]::ReadKey($true).Key -eq 'Escape') {
+            Warn 'Cancelled, nothing was changed.'
+            return $false
+        }
+        $busy = (Get-DesktopProcesses).Count -gt 0 -or ($coworkVM -and (Get-Process -Name 'vmwp' -ErrorAction SilentlyContinue))
+        if (-not $busy) {
             Start-Sleep -Seconds 2
+            Ok 'Claude Desktop is closed'
             return $true
-        }
-
-        if ($elapsed % 30 -eq 0) {
-            $status = ""
-            if ($cAlive) { $status += "Claude " }
-            if ($vAlive) { $status += "vmwp " }
-            Write-Info "${elapsed}s - still waiting for: $status"
-        }
-    }
-}
-
-function Repair-CoworkVM {
-    # Cowork runs in a Hyper-V VM that needs sessiondata.vhdx
-    # If this file is missing, VM fails with "HCS operation failed" error
-    # Fix: recreate empty VHDX with diskpart (requires admin)
-    $sdPath = "$claudeDir\vm_bundles\claudevm.bundle\sessiondata.vhdx"
-
-    # Only check if vm_bundles exists (Cowork may not be installed)
-    if (-not (Test-Path "$claudeDir\vm_bundles\claudevm.bundle")) { return }
-
-    if (-not (Test-Path $sdPath)) {
-        Write-Host ""
-        Write-Host "  !! sessiondata.vhdx MISSING! Auto-rebuilding..." -ForegroundColor Red -BackgroundColor Yellow
-        Write-Host ""
-
-        $dpScript = [System.IO.Path]::GetTempFileName()
-        @"
-create vdisk file="$sdPath" maximum=1024 type=expandable
-exit
-"@ | Set-Content $dpScript -Encoding ASCII
-        Start-Process diskpart -ArgumentList "/s `"$dpScript`"" -Verb RunAs -Wait
-        Remove-Item $dpScript -Force -ErrorAction SilentlyContinue
-
-        if (Test-Path $sdPath) {
-            Write-OK "sessiondata.vhdx rebuilt"
-        } else {
-            Write-Err "Failed to rebuild - run as admin: diskpart"
-            Write-Err "  create vdisk file=`"$sdPath`" maximum=1024 type=expandable"
         }
     }
 }
 
 function Start-Claude {
-    if ($NoRestart) { Write-Info "Start Claude Desktop yourself when ready"; return }
-    # Try Microsoft Store version first, then standalone
-    $storeApp = Get-AppxPackage -Name "Claude" -ErrorAction SilentlyContinue
-    if ($storeApp) {
-        $familyName = $storeApp.PackageFamilyName
-        Start-Process "explorer.exe" "shell:AppsFolder\${familyName}!Claude"
-    } else {
-        $exePath = "$env:LOCALAPPDATA\AnthropicClaude\claude.exe"
-        if (Test-Path $exePath) {
-            Start-Process $exePath
-        } else {
-            Write-Err "Claude Desktop not found. Please install it first."
-            return
-        }
-    }
-    Start-Sleep -Seconds 2
-    Write-OK "Claude Desktop launched!"
+    if ($NoRestart -or -not $Script:IsLive) { return }
+    $store = Get-AppxPackage -Name 'Claude' -ErrorAction SilentlyContinue
+    if ($store) { Start-Process 'explorer.exe' "shell:AppsFolder\$($store.PackageFamilyName)!Claude" }
+    elseif (Test-Path "$env:LOCALAPPDATA\AnthropicClaude\claude.exe") { Start-Process "$env:LOCALAPPDATA\AnthropicClaude\claude.exe" }
+    else { Warn 'Could not find Claude Desktop to reopen it. Start it yourself.'; return }
+    Ok 'Reopening Claude Desktop'
 }
 
-function Switch-Profile {
-    param([string]$target)
+# Cowork's Hyper-V VM fails with "HCS operation failed" when sessiondata.vhdx is missing
+function Repair-CoworkVM {
+    $bundle = "$($Script:Data)\vm_bundles\claudevm.bundle"
+    $disk = "$bundle\sessiondata.vhdx"
+    if (-not (Test-Path $bundle) -or (Test-Path $disk)) { return }
+    Warn 'Cowork sessiondata.vhdx is missing, rebuilding it (asks for admin)'
+    $script = [IO.Path]::GetTempFileName()
+    "create vdisk file=`"$disk`" maximum=1024 type=expandable`nexit" | Set-Content $script -Encoding ASCII
+    Start-Process diskpart -ArgumentList "/s `"$script`"" -Verb RunAs -Wait
+    Remove-Item $script -Force -ErrorAction SilentlyContinue
+    if (Test-Path $disk) { Ok 'sessiondata.vhdx rebuilt' } else { Fail "Rebuild failed. As admin, run diskpart: create vdisk file=`"$disk`" maximum=1024 type=expandable" }
+}
 
+function Confirm-Action([string]$Question) {
+    if ($Yes) { return $true }
+    if (-not $Script:Interactive) { Fail "$Question Pass -Yes to confirm when not running in a terminal."; return $false }
+    Write-Host "  $Question " -ForegroundColor White -NoNewline
+    Write-Host '[Y/n] ' -ForegroundColor DarkGray -NoNewline
+    $key = [Console]::ReadKey($true)
+    $agreed = $key.Key -eq 'Enter' -or $key.KeyChar -eq 'y' -or $key.KeyChar -eq 'Y'
+    if ($agreed) { Write-Host 'yes' -ForegroundColor Green } else { Write-Host 'no' -ForegroundColor DarkGray }
+    return $agreed
+}
+
+# ------------------------------------------------------------------ profile actions
+
+function Invoke-Save([string]$ProfileName, [switch]$StayClosed) {
+    if (-not (Test-ProfileName $ProfileName)) { return }
+    if (-not (Test-Path "$($Script:Data)\config.json")) { Fail 'Claude Desktop is not signed in. Sign in first, then save.'; return }
+    $live = Get-LiveAccount
+    $existing = Find-Profile $ProfileName
+    if ($existing -and $existing.Account -and $live -and $existing.Account -ne $live) {
+        if (-not (Confirm-Action "Profile '$ProfileName' belongs to another account. Replace it with the one signed in now?")) { return }
+    }
+    if (-not (Wait-ClaudeClosed)) { return }
+    Stop-Process -Name 'chrome-native-host' -Force -ErrorAction SilentlyContinue
+    Save-Session $ProfileName
+    Set-CurrentProfile $ProfileName
+    Ok "Saved the signed-in account as '$ProfileName'"
+    if (-not $StayClosed) { Start-Claude }
+}
+
+# Add another account without logging out, because logging out can invalidate a saved login
+function Invoke-New([string]$ProfileName) {
+    if (-not (Test-ProfileName $ProfileName)) { return }
+    if (Find-Profile $ProfileName) { Fail "Profile '$ProfileName' already exists. Switch to it: claude-switcher switch $ProfileName"; return }
     $current = Get-CurrentProfile
-    $targetDir = "$instanceDir\$target"
-
-    if (!(Test-Path "$targetDir\config.json")) {
-        Write-Err "Profile '$target' not found."
-        Write-Info "Available: $(( Get-Profiles ) -join ', ')"
-        return
-    }
-
-    if ($current -eq $target) {
-        Write-Warn "Already on profile '$target'"
-        return
-    }
-
-    if ($current -and -not (Test-CurrentMatches $current)) { return }
-
-    Write-Host "  ========================================"
-    Write-Host "  Switching: $current -> $target" -ForegroundColor Cyan
-    Write-Host "  ========================================"
-
-    # Step 1: Close Claude
-    $closed = Stop-ClaudeGracefully
-    if (-not $closed) { return }
-    Stop-Process -Name "chrome-native-host" -Force -ErrorAction SilentlyContinue
-
-    # Step 2: Save current session
-    if ($current) {
-        Save-Session $current
-        Write-OK "Saved session to '$current'"
-    }
-
-    # Step 3: Load target session
-    Load-Session $target
-    Write-OK "Loaded session from '$target'"
-
-    # Step 4: Ensure Cowork VM sessiondata exists
-    Repair-CoworkVM
-
-    # Step 5: Update marker
-    Set-Content -Path $currentFile -Value $target -NoNewline
-    Write-OK "Profile set to '$target'"
-
-    # Step 6: Launch
-    Write-Host ""
-    Write-Info "Starting Claude Desktop..."
-    Start-Claude
-    Write-Host ""
-    Write-Host "  Done! Now on profile: $target" -ForegroundColor Green
-    Write-Host ""
-}
-
-function New-Profile {
-    param([string]$name)
-
-    $profileDir = "$instanceDir\$name"
-    if (Test-Path "$profileDir\config.json") {
-        Write-Warn "Profile '$name' already exists. Overwriting..."
-    }
-
-    if (!(Test-Path "$claudeDir\config.json")) {
-        Write-Err "No config.json found. Please login to Claude Desktop first."
-        return
-    }
-
-    # Must close Claude to copy locked files (Cookies etc)
-    $closed = Stop-ClaudeGracefully
-    if (-not $closed) { return }
-    Stop-Process -Name "chrome-native-host" -Force -ErrorAction SilentlyContinue
-
-    Save-Session $name
-    Set-Content -Path $currentFile -Value $name -NoNewline
-    Write-OK "Created profile '$name' from current login"
-    Write-OK "Active profile set to '$name'"
-}
-
-# Add another account without logging out, since logging out can invalidate the saved login
-function New-EmptyProfile {
-    param([string]$name)
-
-    if (Test-Path "$instanceDir\$name\config.json") {
-        Write-Err "Profile '$name' already exists. Use: switch $name"
-        return
-    }
-    $current = Get-CurrentProfile
-    if (-not $current) {
-        Write-Err "Save the account you are signed into first: create <name>"
+    if (-not $current -or -not (Find-Profile $current)) {
+        Fail 'Save the account you are signed into first: claude-switcher save <name>'
         return
     }
     if (-not (Test-CurrentMatches $current)) { return }
-
-    $closed = Stop-ClaudeGracefully
-    if (-not $closed) { return }
-    Stop-Process -Name "chrome-native-host" -Force -ErrorAction SilentlyContinue
-
+    if (-not (Wait-ClaudeClosed)) { return }
+    Stop-Process -Name 'chrome-native-host' -Force -ErrorAction SilentlyContinue
     Save-Session $current
-    Write-OK "Saved session to '$current'"
+    Ok "Kept '$current' safe"
     Clear-Session
-    Set-Content -Path $currentFile -Value $name -NoNewline
-    Write-OK "Cleared the login, profile '$name' is saved on your next switch"
-    Write-Info "Sign in to the new account when Claude Desktop opens"
+    Set-CurrentProfile $ProfileName
+    Ok "Claude Desktop will open signed out. Sign in to the account for '$ProfileName'."
+    Info "It is saved as '$ProfileName' the next time you switch."
     Start-Claude
 }
 
-# === Main ===
-Write-Host ""
-Write-Host "  Claude Profile Switcher v1.1.0" -ForegroundColor White
-Write-Host "  github.com/NeezerGu/claude-profile-switcher" -ForegroundColor DarkGray
+function Invoke-Switch([string]$Target) {
+    $profile = Find-Profile $Target
+    if (-not $profile) {
+        Fail "No profile named '$Target'."
+        $names = @(Get-Profiles | ForEach-Object { $_.Name })
+        if ($names) { Info "Profiles: $($names -join ', ')" }
+        return
+    }
+    $current = Get-CurrentProfile
+    if ($current -eq $Target) { Warn "Already on '$Target'."; return }
+    if ($current -and -not (Test-CurrentMatches $current)) { return }
+    Say "Switching $(if ($current) { $current } else { '(unsaved)' }) -> $Target" 'Cyan'
+    if (-not (Wait-ClaudeClosed)) { return }
+    Stop-Process -Name 'chrome-native-host' -Force -ErrorAction SilentlyContinue
+    if ($current) { Save-Session $current; Ok "Saved '$current'" }
+    Restore-Session $Target
+    Repair-CoworkVM
+    Set-CurrentProfile $Target
+    Ok "Signed in as '$Target'"
+    Start-Claude
+}
 
-if (!(Test-Path $instanceDir)) { New-Item -ItemType Directory -Path $instanceDir -Force | Out-Null }
+function Invoke-Rename([string]$Old, [string]$New) {
+    if (-not (Find-Profile $Old)) { Fail "No profile named '$Old'."; return }
+    if (-not (Test-ProfileName $New)) { return }
+    if (Find-Profile $New) { Fail "A profile named '$New' already exists."; return }
+    Rename-Item -LiteralPath "$($Script:Vault)\$Old" $New
+    if ((Get-CurrentProfile) -eq $Old) { Set-CurrentProfile $New }
+    Ok "Renamed '$Old' to '$New'"
+}
 
-switch ($Action.ToLower()) {
-    "list" {
-        $current = Get-CurrentProfile
-        $profiles = Get-Profiles
-        Write-Info "Claude data: $claudeDir"
-        if ($profiles.Count -eq 0) {
-            Write-Info "No profiles yet. Run: .\claude-switcher.ps1 create <name>"
-        } else {
-            Write-Host "  Profiles:"
-            foreach ($p in $profiles) {
-                if ($p -eq $current) {
-                    Write-Host "    - $p <-- active" -ForegroundColor Green
-                } else {
-                    Write-Host "    - $p" -ForegroundColor White
-                }
+function Invoke-Remove([string]$ProfileName) {
+    $profile = Find-Profile $ProfileName
+    if (-not $profile) { Fail "No profile named '$ProfileName'."; return }
+    if ((Get-CurrentProfile) -eq $ProfileName) { Fail "'$ProfileName' is the account in use. Switch to another profile first."; return }
+    if (-not (Confirm-Action "Remove the saved login '$ProfileName'? Its chats stay in Claude Desktop.")) { return }
+    Remove-Item -LiteralPath $profile.Dir -Recurse -Force
+    Ok "Removed '$ProfileName'"
+}
+
+# ------------------------------------------------------------------ chats
+
+function Get-TranscriptIndex {
+    if ($null -ne $Script:TxIndex) { return $Script:TxIndex }
+    $Script:TxIndex = @{}
+    if (Test-Path $Script:Projects) {
+        foreach ($file in [IO.Directory]::EnumerateFiles($Script:Projects, '*.jsonl', [IO.SearchOption]::AllDirectories)) {
+            $id = [IO.Path]::GetFileNameWithoutExtension($file)
+            if ($id -match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' -and -not $Script:TxIndex.ContainsKey($id)) {
+                $Script:TxIndex[$id] = $file
             }
         }
     }
-    "current" {
-        $c = Get-CurrentProfile
-        if ($c) { Write-Info "Current profile: $c" }
-        else { Write-Info "No profile set" }
+    return $Script:TxIndex
+}
+
+# One chat list per account and organization, the way Desktop stores them
+function Get-Spaces {
+    $out = @()
+    if (-not (Test-Path $Script:Sessions)) { return $out }
+    $profiles = @(Get-Profiles)
+    $live = Get-LiveAccount
+    foreach ($account in @(Get-ChildItem $Script:Sessions -Directory -Force)) {
+        $orgs = @(Get-ChildItem $account.FullName -Directory -Force)
+        foreach ($org in $orgs) {
+            $owners = @($profiles | Where-Object { $_.Account -eq $account.Name } | ForEach-Object { $_.Name })
+            $label = if ($owners.Count) { $owners -join ', ' } else { "account $(Short $account.Name)" }
+            if ($orgs.Count -gt 1) { $label += " $($G.Dot) org $(Short $org.Name)" }
+            $out += [pscustomobject]@{
+                Account  = $account.Name
+                Org      = $org.Name
+                Dir      = $org.FullName
+                Label    = $label
+                Chats    = @(Get-ChildItem $org.FullName -Filter 'local_*.json' -File -ErrorAction SilentlyContinue).Count
+                SignedIn = ($account.Name -eq $live)
+                Linked   = [bool](($account.Attributes -bor $org.Attributes) -band [IO.FileAttributes]::ReparsePoint)
+            }
+        }
     }
-    "switch" {
-        if (!$Name) { Write-Err "Usage: .\claude-switcher.ps1 switch <profile>"; return }
-        Switch-Profile $Name
+    return $out
+}
+
+function Get-Chats([string]$Dir) {
+    $index = Get-TranscriptIndex
+    $chats = foreach ($file in @(Get-ChildItem $Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
+        $card = Read-Json $file.FullName
+        if (-not $card) { continue }
+        $last = 0
+        if ($card.lastActivityAt) { $last = [int64]$card.lastActivityAt } elseif ($card.createdAt) { $last = [int64]$card.createdAt }
+        $cwd = [string]$card.cwd
+        [pscustomobject]@{
+            Id         = $file.BaseName
+            File       = $file.FullName
+            Session    = [string]$card.cliSessionId
+            Title      = Format-Title $card.title
+            Project    = if ($cwd) { Split-Path $cwd -Leaf } else { '' }
+            Last       = $last
+            Archived   = [bool]$card.isArchived
+            HasHistory = (-not $card.cliSessionId) -or $index.ContainsKey([string]$card.cliSessionId)
+        }
     }
-    "create" {
-        if (!$Name) { Write-Err "Usage: .\claude-switcher.ps1 create <name>"; return }
-        New-Profile $Name
+    @($chats | Sort-Object Last -Descending)
+}
+
+function Resolve-Space([string]$Ref, [object[]]$Spaces) {
+    if (-not $Ref) { return $null }
+    if ($Ref -eq 'signed-in') { $hits = @($Spaces | Where-Object { $_.SignedIn }) }
+    else {
+        $profile = Find-Profile $Ref
+        if ($profile -and $profile.Account) { $hits = @($Spaces | Where-Object { $_.Account -eq $profile.Account }) }
+        else {
+            $account, $org = $Ref -split '/', 2
+            $hits = @($Spaces | Where-Object { $_.Account.StartsWith($account, 'OrdinalIgnoreCase') -and (-not $org -or $_.Org.StartsWith($org, 'OrdinalIgnoreCase')) })
+        }
     }
-    "new" {
-        if (!$Name) { Write-Err "Usage: .\claude-switcher.ps1 new <name>"; return }
-        New-EmptyProfile $Name
+    if ($hits.Count -eq 1) { return $hits[0] }
+    if ($hits.Count -gt 1) { Fail "'$Ref' matches several chat lists, add the org: account/org"; return $null }
+    Fail "No account matches '$Ref'. See: claude-switcher accounts"
+    return $null
+}
+
+function Resolve-Chats([string[]]$Refs, [object[]]$Chats) {
+    $picked = @()
+    foreach ($ref in @($Refs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) {
+        $hits = @($Chats | Where-Object { $_.Id.StartsWith($ref, 'OrdinalIgnoreCase') -or $_.Id.StartsWith("local_$ref", 'OrdinalIgnoreCase') -or ($_.Session -and $_.Session.StartsWith($ref, 'OrdinalIgnoreCase')) })
+        if ($hits.Count -ne 1) { Fail "'$ref' matches $($hits.Count) chats, use a longer id."; return $null }
+        $picked += $hits[0]
     }
-    "repair" {
-        Write-Info "Checking Cowork VM..."
-        Repair-CoworkVM
-        Write-OK "Check complete"
+    return $picked
+}
+
+# ------------------------------------------------------------------ journal (undo)
+
+function New-Journal([string]$Action) {
+    $dir = "$($Script:JournalDir)\$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    [pscustomobject]@{ Action = $Action; Dir = $dir; Entries = New-Object System.Collections.ArrayList }
+}
+
+function Add-JournalCreated($Journal, [string]$Path) {
+    [void]$Journal.Entries.Add([pscustomobject]@{ Op = 'created'; Path = $Path; Backup = '' })
+}
+
+function Add-JournalRemoved($Journal, [string]$Path) {
+    $backup = "$($Journal.Dir)\$($Journal.Entries.Count)-$([IO.Path]::GetFileName($Path))"
+    Copy-Item -LiteralPath $Path $backup -Force
+    [void]$Journal.Entries.Add([pscustomobject]@{ Op = 'removed'; Path = $Path; Backup = $backup })
+}
+
+function Save-Journal($Journal, [string]$Summary) {
+    $doc = [ordered]@{ action = $Journal.Action; at = (Get-Date).ToString('o'); summary = $Summary; entries = @($Journal.Entries) }
+    Write-Text "$($Journal.Dir)\journal.json" ($doc | ConvertTo-Json -Depth 5)
+}
+
+function Get-LastJournal {
+    if (-not (Test-Path $Script:JournalDir)) { return $null }
+    $dir = Get-ChildItem $Script:JournalDir -Directory | Where-Object {
+        (Test-Path "$($_.FullName)\journal.json") -and -not (Test-Path "$($_.FullName)\undone")
+    } | Sort-Object Name -Descending | Select-Object -First 1
+    if (-not $dir) { return $null }
+    $journal = Read-Json "$($dir.FullName)\journal.json"
+    $journal | Add-Member -NotePropertyName Dir -NotePropertyValue $dir.FullName -Force
+    return $journal
+}
+
+function Invoke-Undo {
+    $journal = Get-LastJournal
+    if (-not $journal) { Info 'Nothing to undo.'; return }
+    Say "Last change: $($journal.summary)" 'White'
+    if (-not (Confirm-Action 'Undo it?')) { return }
+    if (-not (Wait-ClaudeClosed)) { return }
+    $entries = @($journal.entries)
+    [array]::Reverse($entries)
+    foreach ($entry in $entries) {
+        if ($entry.Op -eq 'created') { Remove-Item -LiteralPath $entry.Path -Force -ErrorAction SilentlyContinue }
+        else {
+            New-Item -ItemType Directory -Path (Split-Path $entry.Path) -Force | Out-Null
+            Copy-Item -LiteralPath $entry.Backup $entry.Path -Force
+        }
     }
-    default {
-        Write-Host "  Usage: .\claude-switcher.ps1 <command> [name]"
-        Write-Host ""
-        Write-Host "  Commands:"
-        Write-Host "    create <name>   - Save current login as a profile"
-        Write-Host "    new <name>      - Save current login, then open Claude signed out for another account"
-        Write-Host "    switch <name>   - Switch to a profile"
-        Write-Host "    list            - List all profiles"
-        Write-Host "    current         - Show active profile"
-        Write-Host "    repair          - Fix Cowork VM if broken"
-        Write-Host ""
-        Write-Host "  Quick Setup (never use Log out in Claude, it can invalidate a saved login):"
-        Write-Host "    1. Login to Account A in Claude Desktop"
-        Write-Host "    2. .\claude-switcher.ps1 create work"
-        Write-Host "    3. .\claude-switcher.ps1 new personal   (sign in to Account B)"
-        Write-Host "    4. .\claude-switcher.ps1 switch work"
+    Write-Text "$($journal.Dir)\undone" (Get-Date).ToString('o')
+    Ok "Undone: $($journal.summary)"
+    Start-Claude
+}
+
+# ------------------------------------------------------------------ chat actions
+
+function Invoke-Transfer($Source, $Target, [object[]]$Chats, [bool]$MoveThem) {
+    if (-not $Chats -or $Chats.Count -eq 0) { Info 'No chats selected.'; return }
+    if ($Source.Dir -eq $Target.Dir) { Fail 'Pick two different accounts.'; return }
+    $verb = if ($MoveThem) { 'Moved' } else { 'Copied' }
+    if (-not (Wait-ClaudeClosed)) { return }
+    $journal = New-Journal $(if ($MoveThem) { 'move' } else { 'copy' })
+    $written = 0; $present = 0
+    foreach ($chat in $Chats) {
+        $dest = "$($Target.Dir)\$($chat.Id).json"
+        if (Test-Path -LiteralPath $dest) { $present++ }
+        else {
+            Copy-Item -LiteralPath $chat.File $dest
+            Add-JournalCreated $journal $dest
+            $written++
+        }
+        if ($MoveThem) {
+            Add-JournalRemoved $journal $chat.File
+            Remove-Item -LiteralPath $chat.File -Force
+        }
+    }
+    $summary = "$verb $($Chats.Count) chat(s) from $($Source.Label) to $($Target.Label)"
+    Save-Journal $journal $summary
+    Ok $summary
+    if ($present) { Info "$present were already in $($Target.Label) and were left as they are." }
+    Info 'Undo with: claude-switcher undo'
+    Start-Claude
+}
+
+# Copy every chat the target does not have yet, newest copy wins when several accounts hold it
+function Invoke-Merge($Target, [object[]]$Spaces) {
+    $have = @{}
+    foreach ($f in @(Get-ChildItem $Target.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) { $have[$f.Name] = $true }
+    $newest = @{}
+    foreach ($space in @($Spaces | Where-Object { $_.Dir -ne $Target.Dir })) {
+        foreach ($f in @(Get-ChildItem $space.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
+            if ($have.ContainsKey($f.Name)) { continue }
+            if (-not $newest.ContainsKey($f.Name) -or $f.LastWriteTime -gt $newest[$f.Name].LastWriteTime) { $newest[$f.Name] = $f }
+        }
+    }
+    if ($newest.Count -eq 0) { Ok "$($Target.Label) already has every chat."; return }
+    if (-not (Confirm-Action "Copy $($newest.Count) chat(s) into $($Target.Label)?")) { return }
+    if (-not (Wait-ClaudeClosed)) { return }
+    $journal = New-Journal 'merge'
+    foreach ($f in $newest.Values) {
+        $dest = "$($Target.Dir)\$($f.Name)"
+        Copy-Item -LiteralPath $f.FullName $dest
+        Add-JournalCreated $journal $dest
+    }
+    $summary = "Copied $($newest.Count) chat(s) into $($Target.Label)"
+    Save-Journal $journal $summary
+    Ok $summary
+    Info 'Undo with: claude-switcher undo'
+    Start-Claude
+}
+
+# The value of the first (or last) "key":"..." in a transcript. Ordinal search plus a walk to the closing quote:
+# a regex match, even anchored with \G, scans the rest of a 50 MB string and takes seconds.
+function Find-Value([string]$Text, [string]$Key, [switch]$Last) {
+    $marker = '"' + $Key + '":"'
+    $at = if ($Last) { $Text.LastIndexOf($marker, [StringComparison]::Ordinal) } else { $Text.IndexOf($marker, [StringComparison]::Ordinal) }
+    if ($at -lt 0) { return $null }
+    $open = $at + $marker.Length - 1
+    $close = $open
+    while ($true) {
+        $close = $Text.IndexOf([char]'"', $close + 1)
+        if ($close -lt 0) { return $null }
+        $escapes = 0
+        for ($k = $close - 1; $k -gt $open -and $Text[$k] -eq [char]'\'; $k--) { $escapes++ }
+        if ($escapes % 2 -eq 0) { break }
+    }
+    try { return [regex]::Unescape($Text.Substring($open + 1, $close - $open - 1)) } catch { return $null }
+}
+
+# Reads what a sidebar record needs from a transcript. Files reach tens of megabytes, so no line-by-line parsing
+# except the first few user turns when there is no custom title.
+function Read-Transcript([string]$Path, [string]$Session) {
+    $text = [IO.File]::ReadAllText($Path, $Script:Utf8)
+    $firstStamp = Find-Value $text 'timestamp'
+    $cwd = Find-Value $text 'cwd'
+    if (-not $firstStamp -or -not $cwd) { return $null }
+    $lastStamp = Find-Value $text 'timestamp' -Last
+    $title = Find-Value $text 'customTitle' -Last
+    $model = Find-Value $text 'model' -Last
+    if ($model -notlike 'claude-*') { $model = $null }
+    if (-not $title) {
+        $seen = 0
+        foreach ($line in [IO.File]::ReadLines($Path)) {
+            if (++$seen -gt 400) { break }
+            if (-not $line.Contains('"type":"user"')) { continue }
+            try {
+                $entry = $line | ConvertFrom-Json
+                $content = $entry.message.content
+                $asked = if ($content -is [string]) { $content } else { (@($content) | Where-Object { $_.type -eq 'text' } | ForEach-Object { $_.text }) -join ' ' }
+                $asked = ([string]$asked).Trim()
+                if ($asked -and -not $entry.isMeta -and -not $asked.StartsWith('<')) { $title = $asked; break }
+            } catch {}
+        }
+    }
+    if (-not $title) { $title = 'Recovered chat' }
+    $title = Format-Title $title
+    if ($title.Length -gt 80) { $title = $title.Substring(0, 79) + [char]0x2026 }
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    [pscustomobject]@{
+        Session = $Session; Path = $Path; Title = $title; Cwd = $cwd; Project = Split-Path $cwd -Leaf; Model = $model
+        First   = [DateTimeOffset]::Parse($firstStamp, $culture).ToUnixTimeMilliseconds()
+        Last    = [DateTimeOffset]::Parse($lastStamp, $culture).ToUnixTimeMilliseconds()
     }
 }
-Write-Host ""
+
+# Transcripts on disk that no account lists: chats Desktop lost track of
+function Get-Orphans {
+    $index = Get-TranscriptIndex
+    $known = @{}
+    foreach ($space in Get-Spaces) {
+        foreach ($f in @(Get-ChildItem $space.Dir -Filter 'local_*.json' -File -ErrorAction SilentlyContinue)) {
+            $card = Read-Json $f.FullName
+            if ($card -and $card.cliSessionId) { $known[[string]$card.cliSessionId] = $true }
+        }
+    }
+    $found = foreach ($session in @($index.Keys | Where-Object { -not $known.ContainsKey($_) })) {
+        Read-Transcript $index[$session] $session
+    }
+    @($found | Where-Object { $_ } | Sort-Object Last -Descending)
+}
+
+function New-Card($Transcript) {
+    $card = [ordered]@{
+        sessionId                = "local_$([guid]::NewGuid())"
+        cliSessionId             = $Transcript.Session
+        cwd                      = $Transcript.Cwd
+        originCwd                = $Transcript.Cwd
+        lastFocusedAt            = $Transcript.Last
+        createdAt                = $Transcript.First
+        lastActivityAt           = $Transcript.Last
+        isArchived               = $false
+        title                    = $Transcript.Title
+        titleSource              = 'auto'
+        permissionMode           = 'default'
+        remoteMcpServersConfig   = @()
+        alwaysAllowedReasons     = @()
+        sessionPermissionUpdates = @()
+        spawnSeed                = @{}
+    }
+    if ($Transcript.Model) { $card['model'] = $Transcript.Model }
+    return $card
+}
+
+function Invoke-Rescue($Target, [object[]]$Transcripts) {
+    if (-not $Transcripts -or $Transcripts.Count -eq 0) { Info 'No chats selected.'; return }
+    if (-not (Wait-ClaudeClosed)) { return }
+    $journal = New-Journal 'rescue'
+    foreach ($t in $Transcripts) {
+        $card = New-Card $t
+        $dest = "$($Target.Dir)\$($card.sessionId).json"
+        Write-Text $dest ($card | ConvertTo-Json -Depth 5 -Compress)
+        Add-JournalCreated $journal $dest
+    }
+    $summary = "Recovered $($Transcripts.Count) chat(s) into $($Target.Label)"
+    Save-Journal $journal $summary
+    Ok $summary
+    Info 'Undo with: claude-switcher undo'
+    Start-Claude
+}
+
+# ------------------------------------------------------------------ doctor
+
+function Invoke-Doctor {
+    $issues = 0
+    Say "Claude Switcher $($Script:Version)" 'White'
+    Write-Host ''
+    $kind = if ($Script:Data -like '*\Packages\Claude_*') { 'Microsoft Store install' } else { 'Standalone install' }
+    if (Test-Path "$($Script:Data)\config.json") { Ok "$kind found" } else { Warn "$kind folder has no login yet: $($Script:Data)"; $issues++ }
+    Info $Script:Data
+    if ($Script:IsLive) {
+        if (Test-ClaudeRunning) { Info 'Claude Desktop is running' } else { Info 'Claude Desktop is closed' }
+    }
+
+    $live = Get-LiveAccount
+    $profiles = @(Get-Profiles)
+    $current = Get-CurrentProfile
+    $owner = @($profiles | Where-Object { $_.Account -and $_.Account -eq $live })
+    if ($owner) { Ok "Signed in as profile '$($owner[0].Name)'" }
+    elseif ($live) { Warn "The signed-in account ($(Short $live)) is not saved yet. Save it: claude-switcher save <name>"; $issues++ }
+    if ($current -and $owner -and $owner[0].Name -ne $current) {
+        Warn "The active profile says '$current' but Desktop is signed in as '$($owner[0].Name)'. Switching will refuse until this matches."
+        $issues++
+    }
+    Info "$($profiles.Count) saved profile(s)$(if ($profiles) { ': ' + (($profiles | ForEach-Object { $_.Name }) -join ', ') })"
+
+    Write-Host ''
+    $index = Get-TranscriptIndex
+    foreach ($space in Get-Spaces) {
+        $chats = @(Get-Chats $space.Dir)
+        $ghosts = @($chats | Where-Object { -not $_.HasHistory }).Count
+        $line = "$($space.Label): $($chats.Count) chat(s)"
+        if ($space.SignedIn) { $line += ' (signed in)' }
+        if ($space.Linked) {
+            Fail "$line are behind a junction or symlink. Desktop reads through it but never writes, so new chats vanish."
+            Info '  Replace the link with a real folder holding a copy of the chats.'
+            $issues++
+        }
+        else { Ok $line }
+        if ($ghosts) { Info "  $ghosts of them have no history left on disk and open empty." }
+    }
+    $orphans = @($index.Keys).Count - @(Get-Spaces | ForEach-Object { Get-Chats $_.Dir } | Where-Object { $_.HasHistory -and $_.Session } | ForEach-Object { $_.Session } | Sort-Object -Unique).Count
+    if ($orphans -gt 0) { Warn "$orphans chat history file(s) are missing from every sidebar. Recover them: claude-switcher rescue" }
+
+    $settings = Read-Json "$env:USERPROFILE\.claude\settings.json"
+    if (-not $settings -or -not $settings.cleanupPeriodDays) {
+        Write-Host ''
+        Warn 'Claude Code deletes chat history it has not touched for 30 days.'
+        Info '  To keep it, add "cleanupPeriodDays": 3650 to %USERPROFILE%\.claude\settings.json'
+    }
+    Write-Host ''
+    if ($issues) { Warn "$issues thing(s) need attention" } else { Ok 'Everything looks right' }
+}
+
+# ------------------------------------------------------------------ interactive menu
+
+# Builds one screen of the picker as lines of (text, color) segments. Kept apart from drawing
+# so the README frames are rendered by the same code the menu runs.
+function Format-PickerFrame($State) {
+    $items = $State.Items
+    $view = @(for ($i = 0; $i -lt $items.Count; $i++) {
+        $f = $State.Filter
+        if (-not $f -or ([string]$items[$i].Label).IndexOf($f, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or ([string]$items[$i].Detail).IndexOf($f, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $i }
+    })
+    if ($State.Cursor -ge $view.Count) { $State.Cursor = [Math]::Max(0, $view.Count - 1) }
+    $rows = $State.Height - 8
+    if ($State.Cursor -lt $State.Top) { $State.Top = $State.Cursor }
+    if ($State.Cursor -ge $State.Top + $rows) { $State.Top = $State.Cursor - $rows + 1 }
+    $width = $State.Width
+    $chosen = $State.Chosen
+
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add(@(@('  Claude Switcher ', 'White'), @('by Nyxon', 'DarkCyan')))
+    $status = if ($State.Status) { $State.Status } else { Get-StatusLine }
+    [void]$lines.Add(@(, @("  $status", 'DarkGray')))
+    [void]$lines.Add(@())
+    $heading = "  $($State.Title)"
+    if ($State.Multi) { $heading += "   $($chosen.Count) selected" }
+    [void]$lines.Add(@(, @($heading, 'Cyan')))
+    if ($State.Note) { [void]$lines.Add(@(, @("  $($State.Note)", 'DarkGray'))) } else { [void]$lines.Add(@()) }
+    for ($r = $State.Top; $r -lt [Math]::Min($view.Count, $State.Top + $rows); $r++) {
+        $item = $items[$view[$r]]
+        $here = $r -eq $State.Cursor
+        $picked = $chosen.ContainsKey($view[$r])
+        $pointer = if ($here) { "  $($G.Ptr) " } else { '    ' }
+        $mark = ''
+        if ($State.Multi) { $mark = if ($picked) { "$($G.On) " } else { "$($G.Off) " } }
+        $labelColor = if ($here) { 'White' } elseif ($item.Color) { $item.Color } else { 'Gray' }
+        $room = $width - $pointer.Length - $mark.Length - 2
+        $label = [string]$item.Label
+        $detail = [string]$item.Detail
+        $fit = [Math]::Max(10, $room - $detail.Length - 3)
+        if ($detail -and $label.Length -gt $fit) { $label = $label.Substring(0, $fit) }
+        $gap = [Math]::Max(2, $room - $label.Length - $detail.Length)
+        [void]$lines.Add(@(
+            @($pointer, 'Cyan'),
+            @($mark, $(if ($picked) { 'Green' } else { 'DarkGray' })),
+            @($label, $labelColor),
+            @(((' ' * $gap) + $detail), 'DarkGray')
+        ))
+    }
+    if ($view.Count -eq 0) { [void]$lines.Add(@(, @('    nothing matches', 'DarkGray'))) }
+    while ($lines.Count -lt $State.Height - 2) { [void]$lines.Add(@()) }
+    $keys = if ($State.Typing) { "  search: $($State.Filter)_   Enter keep  Esc clear" }
+        elseif ($State.Multi) { '  Up/Down move  Space select  A all  / search  Enter confirm  Esc back' }
+        else { '  Up/Down move  / search  Enter choose  Esc back' }
+    if ($State.Filter -and -not $State.Typing) { $keys = "  filter: $($State.Filter)   " + $keys.Trim() }
+    [void]$lines.Add(@(, @($keys, 'DarkGray')))
+    [pscustomobject]@{ Lines = $lines; View = $view; Rows = $rows }
+}
+
+function Show-Picker {
+    param(
+        [string]$Title,
+        [object[]]$Items,
+        [switch]$Multi,
+        [string]$Note = ''
+    )
+    if (-not $Items -or $Items.Count -eq 0) { return $null }
+    $state = @{ Title = $Title; Items = $Items; Multi = [bool]$Multi; Note = $Note; Chosen = @{}; Cursor = 0; Top = 0; Filter = ''; Typing = $false; Status = '' }
+    Clear-Host
+    $origin = [Console]::WindowTop
+    while ($true) {
+        $state.Width = [Math]::Max(40, [Console]::WindowWidth - 1)
+        $state.Height = [Math]::Max(12, [Console]::WindowHeight - 1)
+        $frame = Format-PickerFrame $state
+        $view = $frame.View
+        for ($row = 0; $row -lt $frame.Lines.Count -and $row -lt $state.Height; $row++) {
+            [Console]::SetCursorPosition(0, $origin + $row)
+            Write-Host (' ' * $state.Width) -NoNewline
+            [Console]::SetCursorPosition(0, $origin + $row)
+            $used = 0
+            foreach ($seg in $frame.Lines[$row]) {
+                $text = [string]$seg[0]
+                if ($used + $text.Length -gt $state.Width) { $text = $text.Substring(0, [Math]::Max(0, $state.Width - $used)) }
+                if ($text) { Write-Host $text -NoNewline -ForegroundColor $seg[1] }
+                $used += $text.Length
+            }
+        }
+
+        $key = [Console]::ReadKey($true)
+        if ($state.Typing) {
+            switch ($key.Key) {
+                'Enter' { $state.Typing = $false }
+                'Escape' { $state.Typing = $false; $state.Filter = '' }
+                'Backspace' { if ($state.Filter) { $state.Filter = $state.Filter.Substring(0, $state.Filter.Length - 1) } }
+                default { if (-not [char]::IsControl($key.KeyChar)) { $state.Filter += $key.KeyChar; $state.Cursor = 0; $state.Top = 0 } }
+            }
+            continue
+        }
+        $chosen = $state.Chosen
+        switch ($key.Key) {
+            'UpArrow' { if ($state.Cursor -gt 0) { $state.Cursor-- } }
+            'DownArrow' { if ($state.Cursor -lt $view.Count - 1) { $state.Cursor++ } }
+            'PageUp' { $state.Cursor = [Math]::Max(0, $state.Cursor - $frame.Rows) }
+            'PageDown' { $state.Cursor = [Math]::Min([Math]::Max(0, $view.Count - 1), $state.Cursor + $frame.Rows) }
+            'Home' { $state.Cursor = 0 }
+            'End' { $state.Cursor = [Math]::Max(0, $view.Count - 1) }
+            'Spacebar' { if ($Multi -and $view.Count) { $i = $view[$state.Cursor]; if ($chosen.ContainsKey($i)) { $chosen.Remove($i) } else { $chosen[$i] = $true } } }
+            'Escape' { if ($state.Filter) { $state.Filter = '' } else { Clear-Host; return $null } }
+            'Enter' {
+                if ($view.Count -eq 0) { continue }
+                Clear-Host
+                if (-not $Multi) { return $Items[$view[$state.Cursor]] }
+                if ($chosen.Count -eq 0) { return @($Items[$view[$state.Cursor]]) }
+                return @($chosen.Keys | Sort-Object | ForEach-Object { $Items[$_] })
+            }
+            default {
+                if ($key.KeyChar -eq '/') { $state.Typing = $true }
+                elseif ($Multi -and ($key.KeyChar -eq 'a' -or $key.KeyChar -eq 'A')) {
+                    $allChosen = @($view | Where-Object { $chosen.ContainsKey($_) }).Count -eq $view.Count
+                    foreach ($i in $view) { if ($allChosen) { $chosen.Remove($i) } else { $chosen[$i] = $true } }
+                }
+                elseif ($key.KeyChar -eq 'k') { if ($state.Cursor -gt 0) { $state.Cursor-- } }
+                elseif ($key.KeyChar -eq 'j') { if ($state.Cursor -lt $view.Count - 1) { $state.Cursor++ } }
+            }
+        }
+    }
+}
+
+function Get-StatusLine {
+    $parts = @()
+    $parts += if ($Script:Data -like '*\Packages\Claude_*') { 'Store install' } else { 'Standalone install' }
+    if ($Script:IsLive) { $parts += if (Test-ClaudeRunning) { 'Claude running' } else { 'Claude closed' } }
+    $current = Get-CurrentProfile
+    $parts += if (-not $current) { 'no profile saved yet' } elseif (Find-Profile $current) { "profile: $current" } else { "profile: $current (saved at your next switch)" }
+    return ($parts -join "  $($G.Dot)  ")
+}
+
+function Read-Name([string]$Prompt) {
+    Write-Host ''
+    Write-Host "  $Prompt" -ForegroundColor White
+    Write-Host '  > ' -ForegroundColor Cyan -NoNewline
+    try { [Console]::CursorVisible = $true } catch {}
+    $value = ([string](Read-Host)).Trim()
+    return $value
+}
+
+function Wait-Key {
+    Write-Host ''
+    Write-Host '  Press any key to go back' -ForegroundColor DarkGray
+    [void][Console]::ReadKey($true)
+}
+
+function Get-MenuItems {
+    $current = Get-CurrentProfile
+    $last = Get-LastJournal
+    @(
+        [pscustomobject]@{ Label = 'Switch account'; Detail = $(if ($current) { "now: $current" } else { 'save an account first' }); Value = 'switch' },
+        [pscustomobject]@{ Label = 'Add another account'; Detail = 'sign in once, switch forever'; Value = 'add' },
+        [pscustomobject]@{ Label = 'Move or copy chats between accounts'; Detail = 'pick chats one by one'; Value = 'chats' },
+        [pscustomobject]@{ Label = 'Bring every chat into one account'; Detail = 'copies what is missing'; Value = 'merge' },
+        [pscustomobject]@{ Label = 'Recover chats missing from the sidebar'; Detail = 'rebuilds them from history'; Value = 'rescue' },
+        [pscustomobject]@{ Label = 'Undo the last chat change'; Detail = $(if ($last) { [string]$last.summary } else { 'nothing to undo' }); Value = 'undo' },
+        [pscustomobject]@{ Label = 'Save the signed-in account'; Detail = 'or refresh a saved one'; Value = 'save' },
+        [pscustomobject]@{ Label = 'Rename or remove a profile'; Detail = ''; Value = 'profiles' },
+        [pscustomobject]@{ Label = 'Check my setup'; Detail = 'doctor'; Value = 'doctor' },
+        [pscustomobject]@{ Label = 'Quit'; Detail = ''; Value = 'quit' }
+    )
+}
+
+function Get-SwitchItems {
+    $current = Get-CurrentProfile
+    $live = Get-LiveAccount
+    @(Get-Profiles | ForEach-Object {
+        $detail = if ($_.Name -eq $current) { 'in use' } else { "account $(Short $_.Account)" }
+        if ($_.Account -and $_.Account -eq $live -and $_.Name -ne $current) { $detail = 'signed in now' }
+        [pscustomobject]@{ Label = $_.Name; Detail = $detail; Value = $_.Name; Color = $(if ($_.Name -eq $current) { 'DarkGray' } else { 'Gray' }) }
+    })
+}
+
+function Get-SpaceItems([object[]]$Spaces) {
+    @($Spaces | ForEach-Object {
+        $detail = "$($_.Chats) chats"
+        if ($_.SignedIn) { $detail += "  $($G.Dot)  signed in" }
+        [pscustomobject]@{ Label = $_.Label; Detail = $detail; Value = $_; Color = $(if ($_.SignedIn) { 'White' } else { 'Gray' }) }
+    })
+}
+
+function Get-ChatItems([object[]]$Chats) {
+    @($Chats | ForEach-Object {
+        $flags = @()
+        if ($_.Project) { $flags += $_.Project }
+        $flags += Format-Ago $_.Last
+        if ($_.Archived) { $flags += 'archived' }
+        if (-not $_.HasHistory) { $flags += 'no history' }
+        [pscustomobject]@{ Label = $_.Title; Detail = ($flags -join "  $($G.Dot)  "); Value = $_; Color = $(if ($_.HasHistory) { 'Gray' } else { 'DarkGray' }) }
+    })
+}
+
+function Get-OrphanItems([object[]]$Orphans) {
+    @($Orphans | ForEach-Object {
+        [pscustomobject]@{ Label = $_.Title; Detail = "$($_.Project)  $($G.Dot)  $(Format-Ago $_.Last)"; Value = $_ }
+    })
+}
+
+function Select-Space([string]$Title, [object[]]$Spaces, [string]$Note = '') {
+    $pick = Show-Picker -Title $Title -Items (Get-SpaceItems $Spaces) -Note $Note
+    if ($pick) { return $pick.Value }
+    return $null
+}
+
+function Show-ChatsFlow {
+    $spaces = @(Get-Spaces)
+    if ($spaces.Count -lt 2) { Warn 'Moving chats needs at least two accounts on this computer.'; return }
+    $source = Select-Space 'Move chats from which account?' $spaces
+    if (-not $source) { return }
+    $chats = @(Get-Chats $source.Dir)
+    if (-not $chats) { Warn "$($source.Label) has no chats."; return }
+    $picked = @(Show-Picker -Title "Pick chats from $($source.Label)" -Items (Get-ChatItems $chats) -Multi -Note 'Space picks a chat, / searches titles and projects')
+    if (-not $picked -or -not $picked[0]) { return }
+    $target = Select-Space "Put $($picked.Count) chat(s) into which account?" @($spaces | Where-Object { $_.Dir -ne $source.Dir })
+    if (-not $target) { return }
+    $how = Show-Picker -Title "Copy or move $($picked.Count) chat(s) to $($target.Label)?" -Items @(
+        [pscustomobject]@{ Label = 'Copy'; Detail = 'the chats show up in both accounts'; Value = $false },
+        [pscustomobject]@{ Label = 'Move'; Detail = "they leave $($source.Label)"; Value = $true }
+    )
+    if (-not $how) { return }
+    Invoke-Transfer $source $target @($picked | ForEach-Object { $_.Value }) ([bool]$how.Value)
+}
+
+function Show-RescueFlow {
+    Say 'Looking for chats that no sidebar lists...' 'DarkGray'
+    $orphans = @(Get-Orphans)
+    if (-not $orphans) { Ok 'Every chat history on this computer is in a sidebar.'; return }
+    $picked = @(Show-Picker -Title "$($orphans.Count) chat(s) are on disk but in no sidebar" -Items (Get-OrphanItems $orphans) -Multi -Note 'Some may be chats you deleted on purpose, pick the ones you want back')
+    if (-not $picked -or -not $picked[0]) { return }
+    $spaces = @(Get-Spaces)
+    if (-not $spaces) { Fail 'Sign in to Claude Desktop once so it creates a chat list, then try again.'; return }
+    $target = if ($spaces.Count -eq 1) { $spaces[0] } else { Select-Space "Recover $($picked.Count) chat(s) into which account?" $spaces }
+    if (-not $target) { return }
+    Invoke-Rescue $target @($picked | ForEach-Object { $_.Value })
+}
+
+function Show-AddFlow {
+    $current = Get-CurrentProfile
+    if (-not $current -or -not (Find-Profile $current)) {
+        if (-not (Get-LiveAccount)) { Fail 'Sign in to Claude Desktop first, then come back.'; return }
+        Say 'First, a name for the account you are signed into now.' 'White'
+        $first = Read-Name 'Name for the current account (for example: work)'
+        if (-not $first) { return }
+        Invoke-Save $first -StayClosed
+        if (-not (Find-Profile $first)) { return }
+    }
+    $name = Read-Name 'Name for the new account (for example: personal)'
+    if (-not $name) { return }
+    Invoke-New $name
+}
+
+function Show-ProfilesFlow {
+    $profiles = @(Get-Profiles)
+    if (-not $profiles) { Info 'No saved profiles yet.'; return }
+    $current = Get-CurrentProfile
+    $pick = Show-Picker -Title 'Which profile?' -Items @($profiles | ForEach-Object {
+        [pscustomobject]@{ Label = $_.Name; Detail = $(if ($_.Name -eq $current) { 'in use' } else { "saved $($_.Saved.ToString('yyyy-MM-dd'))" }); Value = $_ }
+    })
+    if (-not $pick) { return }
+    $action = Show-Picker -Title "What should happen to '$($pick.Value.Name)'?" -Items @(
+        [pscustomobject]@{ Label = 'Rename'; Detail = ''; Value = 'rename' },
+        [pscustomobject]@{ Label = 'Remove the saved login'; Detail = 'chats stay in Claude'; Value = 'remove' }
+    )
+    if (-not $action) { return }
+    if ($action.Value -eq 'rename') {
+        $new = Read-Name "New name for '$($pick.Value.Name)'"
+        if ($new) { Invoke-Rename $pick.Value.Name $new }
+    }
+    else { Invoke-Remove $pick.Value.Name }
+}
+
+function Start-Menu {
+    try { [Console]::CursorVisible = $false } catch {}
+    try {
+        while ($true) {
+            $current = Get-CurrentProfile
+            $pick = Show-Picker -Title 'What would you like to do?' -Items (Get-MenuItems)
+            if (-not $pick -or $pick.Value -eq 'quit') { break }
+            try { [Console]::CursorVisible = $true } catch {}
+            Write-Host ''
+            switch ($pick.Value) {
+                'switch' {
+                    $profiles = @(Get-Profiles)
+                    if (-not $profiles) { Info 'No saved profiles yet. Start with "Add another account".'; break }
+                    $target = Show-Picker -Title 'Switch to which account?' -Items (Get-SwitchItems)
+                    if ($target) { Write-Host ''; Invoke-Switch $target.Value }
+                }
+                'add' { Show-AddFlow }
+                'chats' { Show-ChatsFlow }
+                'merge' {
+                    $target = Select-Space 'Bring every chat into which account?' @(Get-Spaces) 'Chats it already has are left alone'
+                    if ($target) { Invoke-Merge $target @(Get-Spaces) }
+                }
+                'rescue' { Show-RescueFlow }
+                'undo' { Invoke-Undo }
+                'save' {
+                    $name = Read-Name 'Save the signed-in account as (for example: work)'
+                    if ($name) { Invoke-Save $name }
+                }
+                'profiles' { Show-ProfilesFlow }
+                'doctor' { Invoke-Doctor }
+            }
+            Wait-Key
+            try { [Console]::CursorVisible = $false } catch {}
+        }
+    }
+    finally {
+        try { [Console]::CursorVisible = $true } catch {}
+        Clear-Host
+    }
+}
+
+# ------------------------------------------------------------------ commands
+
+function Show-Help {
+    Write-Host ''
+    Write-Host '  Claude Switcher ' -ForegroundColor White -NoNewline
+    Write-Host "by Nyxon $($Script:Version)" -ForegroundColor DarkCyan
+    Write-Host '  Switch Claude Desktop accounts without signing in again, and move your chats between them.' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '  Run with no arguments for the interactive menu, or:' -ForegroundColor Gray
+    Write-Host ''
+    @(
+        @('switch <name>', 'switch to a saved account'),
+        @('save <name>', 'save the account Desktop is signed into'),
+        @('new <name>', 'open Desktop signed out to add another account'),
+        @('list', 'saved accounts'),
+        @('rename <old> <new>', 'rename a saved account'),
+        @('remove <name>', 'forget a saved login'),
+        @('accounts', 'chat lists on this computer, with counts'),
+        @('chats <account>', 'chats in one account'),
+        @('copy -From <a> -To <b> -Chat <id>[,<id>]', 'copy chats (or -All)'),
+        @('move -From <a> -To <b> -Chat <id>[,<id>]', 'move chats (or -All)'),
+        @('merge -To <account>', 'copy every missing chat into one account'),
+        @('rescue [-To <account>] [-All | -Chat <id>]', 'recover chats missing from every sidebar'),
+        @('undo', 'undo the last chat change'),
+        @('doctor', 'check the setup'),
+        @('repair', 'rebuild the Cowork VM disk if it is missing')
+    ) | ForEach-Object { Write-Host ('    {0,-44}' -f $_[0]) -ForegroundColor Cyan -NoNewline; Write-Host $_[1] -ForegroundColor Gray }
+    Write-Host ''
+    Write-Host '  Accounts are profile names, signed-in, or an account id prefix. Chat ids come from `chats`.' -ForegroundColor DarkGray
+    Write-Host '  -Yes skips confirmations, -NoRestart leaves Claude Desktop closed afterwards.' -ForegroundColor DarkGray
+    Write-Host "  $($Script:RepoUrl)" -ForegroundColor DarkGray
+    Write-Host ''
+}
+
+function Show-List {
+    $profiles = @(Get-Profiles)
+    $current = Get-CurrentProfile
+    Info "Claude data: $($Script:Data)"
+    if ($current -and -not (Find-Profile $current)) {
+        Write-Host "  $($G.On) $current" -ForegroundColor Green -NoNewline; Write-Host '  in use, saved at your next switch' -ForegroundColor DarkGray
+    }
+    if (-not $profiles) { if (-not $current) { Info 'No saved accounts yet. Run: claude-switcher save <name>' }; return }
+    foreach ($p in $profiles) {
+        if ($p.Name -eq $current) { Write-Host "  $($G.On) $($p.Name)" -ForegroundColor Green -NoNewline; Write-Host '  in use' -ForegroundColor DarkGray }
+        else { Write-Host "  $($G.Off) $($p.Name)" -ForegroundColor Gray }
+    }
+}
+
+function Show-Accounts {
+    $spaces = @(Get-Spaces)
+    if (-not $spaces) { Info 'No chat lists yet. Open Claude Desktop and use the Code tab once.'; return }
+    foreach ($s in $spaces) {
+        $tail = if ($s.SignedIn) { '  signed in' } else { '' }
+        Write-Host ('  {0,-28}' -f $s.Label) -ForegroundColor White -NoNewline
+        Write-Host ('{0,5} chats  {1}/{2}{3}' -f $s.Chats, (Short $s.Account), (Short $s.Org), $tail) -ForegroundColor DarkGray
+    }
+}
+
+function Show-Chats([string]$Ref) {
+    $space = Resolve-Space $(if ($Ref) { $Ref } else { 'signed-in' }) @(Get-Spaces)
+    if (-not $space) { return }
+    Say "$($space.Label): $($space.Chats) chat(s)" 'White'
+    foreach ($c in Get-Chats $space.Dir) {
+        $id = $c.Id -replace '^local_', ''
+        Write-Host ('  {0}  ' -f (Short $id)) -ForegroundColor Cyan -NoNewline
+        Write-Host $c.Title -ForegroundColor Gray -NoNewline
+        Write-Host ("  $($G.Dot) $($c.Project) $($G.Dot) $(Format-Ago $c.Last)$(if (-not $c.HasHistory) { ' ' + $G.Dot + ' no history' })") -ForegroundColor DarkGray
+    }
+}
+
+function Invoke-TransferCommand([bool]$MoveThem) {
+    $spaces = @(Get-Spaces)
+    $source = Resolve-Space $From $spaces
+    $target = Resolve-Space $To $spaces
+    if (-not $source -or -not $target) { if (-not $From -or -not $To) { Fail 'Pass both -From and -To.' }; return }
+    if (-not $All -and -not $Chat) { Fail 'Pass -Chat <id>[,<id>] or -All. List ids with: claude-switcher chats <account>'; return }
+    $chats = @(Get-Chats $source.Dir)
+    $picked = if ($All) { $chats } else { Resolve-Chats $Chat $chats }
+    if ($null -eq $picked) { return }
+    Invoke-Transfer $source $target @($picked) $MoveThem
+}
+
+function Invoke-RescueCommand {
+    $orphans = @(Get-Orphans)
+    if (-not $orphans) { Ok 'Every chat history on this computer is in a sidebar.'; return }
+    if (-not $All -and -not $Chat) {
+        Say "$($orphans.Count) chat(s) are on disk but in no sidebar:" 'White'
+        foreach ($o in $orphans) {
+            Write-Host ('  {0}  ' -f (Short $o.Session)) -ForegroundColor Cyan -NoNewline
+            Write-Host $o.Title -ForegroundColor Gray -NoNewline
+            Write-Host "  $($G.Dot) $($o.Project) $($G.Dot) $(Format-Ago $o.Last)" -ForegroundColor DarkGray
+        }
+        Info 'Recover with: claude-switcher rescue -To <account> -Chat <id>[,<id>]  (or -All)'
+        return
+    }
+    $picked = if ($All) { $orphans } else {
+        @(foreach ($ref in @($Chat | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) {
+            $hits = @($orphans | Where-Object { $_.Session.StartsWith($ref, 'OrdinalIgnoreCase') })
+            if ($hits.Count -ne 1) { Fail "'$ref' matches $($hits.Count) chats, use a longer id."; return }
+            $hits[0]
+        })
+    }
+    $target = Resolve-Space $(if ($To) { $To } else { 'signed-in' }) @(Get-Spaces)
+    if ($target) { Invoke-Rescue $target $picked }
+}
+
+function Invoke-Main {
+    switch ($Command.ToLower()) {
+        '' { if ($Script:Interactive) { Start-Menu } else { Show-Help } }
+        { $_ -in 'help', '-h', '--help', '/?' } { Show-Help }
+        { $_ -in 'version', '--version', '-v' } { Write-Output $Script:Version }
+        { $_ -in 'list', 'ls' } { Show-List }
+        'current' { $c = Get-CurrentProfile; if ($c) { Say $c } else { Info 'No profile in use yet.' } }
+        'switch' { if ($Name) { Invoke-Switch $Name } else { Fail 'Usage: claude-switcher switch <name>' } }
+        { $_ -in 'save', 'create' } { if ($Name) { Invoke-Save $Name } else { Fail 'Usage: claude-switcher save <name>' } }
+        { $_ -in 'new', 'add' } { if ($Name) { Invoke-New $Name } else { Fail 'Usage: claude-switcher new <name>' } }
+        'rename' { if ($Name -and $NewName) { Invoke-Rename $Name $NewName } else { Fail 'Usage: claude-switcher rename <old> <new>' } }
+        { $_ -in 'remove', 'rm' } { if ($Name) { Invoke-Remove $Name } else { Fail 'Usage: claude-switcher remove <name>' } }
+        'accounts' { Show-Accounts }
+        'chats' { Show-Chats $Name }
+        'copy' { Invoke-TransferCommand $false }
+        'move' { Invoke-TransferCommand $true }
+        'merge' { $target = Resolve-Space $To @(Get-Spaces); if ($target) { Invoke-Merge $target @(Get-Spaces) } elseif (-not $To) { Fail 'Usage: claude-switcher merge -To <account>' } }
+        'rescue' { Invoke-RescueCommand }
+        'undo' { Invoke-Undo }
+        'doctor' { Invoke-Doctor }
+        'repair' { Repair-CoworkVM; Ok 'Cowork VM check complete' }
+        default { Fail "Unknown command '$Command'."; Show-Help }
+    }
+}
+
+Invoke-Main

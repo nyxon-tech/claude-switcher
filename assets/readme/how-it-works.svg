@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc"><title id="title">How Claude Switcher works</title><desc id="desc">Claude Desktop keeps login files, one chat list per account, and a shared chat history. Switching swaps the login files, chat moves edit the per-account lists, and recovery rebuilds list entries from the shared history, which is never modified.</desc><rect width="1200" height="440" rx="24" fill="#090b14"/><g font-family="'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif">
+  <rect x="48" y="40" width="1104" height="96" rx="14" fill="#0e1120" stroke="#303345" stroke-width="1.5"/>
+  <text x="80" y="76" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="16" letter-spacing="2" fill="#a8b2ff">LOGIN</text>
+  <text x="80" y="110" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">config.json, Network, Local Storage</text>
+  <text x="640" y="98" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="26" fill="#a8b2ff">›</text>
+  <text x="680" y="82" font-size="22" fill="#f3f0e8">Switch swaps these login files</text>
+  <text x="680" y="112" font-size="19" fill="#aaaec4">about 5 MB per profile, kept in .claude-instances</text>
+  <rect x="48" y="152" width="1104" height="96" rx="14" fill="#0e1120" stroke="#303345" stroke-width="1.5"/>
+  <text x="80" y="188" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="16" letter-spacing="2" fill="#a8b2ff">SIDEBAR</text>
+  <text x="80" y="222" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">claude-code-sessions\account\*.json</text>
+  <text x="640" y="210" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="26" fill="#a8b2ff">›</text>
+  <text x="680" y="194" font-size="22" fill="#f3f0e8">Move, copy or merge chats</text>
+  <text x="680" y="224" font-size="19" fill="#aaaec4">Desktop keeps one chat list per account</text>
+  <rect x="48" y="264" width="1104" height="96" rx="14" fill="#0e1120" stroke="#303345" stroke-width="1.5"/>
+  <text x="80" y="300" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="16" letter-spacing="2" fill="#a8b2ff">HISTORY</text>
+  <text x="80" y="334" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">.claude\projects\...\session.jsonl</text>
+  <text x="640" y="322" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="26" fill="#a8b2ff">›</text>
+  <text x="680" y="306" font-size="22" fill="#f3f0e8">Recover chats from the full history</text>
+  <text x="680" y="336" font-size="19" fill="#aaaec4">shared by every account, never modified</text>
+  <text x="48" y="404" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="17" fill="#6e7391">never touched:  Cowork VM  ·  MCP servers  ·  encryption key  ·  Claude Code settings</text>
+</g></svg>
