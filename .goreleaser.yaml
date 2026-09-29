@@ -51,7 +51,8 @@ nfpms:
       - { src: completions/claude-switcher.fish, dst: /usr/share/fish/vendor_completions.d/claude-switcher.fish }
       - { src: manpages/claude-switcher.1.gz, dst: /usr/share/man/man1/claude-switcher.1.gz }
 
-# Package managers publish only once their repositories and the PUBLISHER_TOKEN secret exist
+# Package managers publish only once their repositories and the PUBLISHER_TOKEN secret exist.
+# A missing secret reaches the workflow as an empty variable, so test the value, not isEnvSet.
 homebrew_casks:
   - name: claude-switcher
     binaries: [claude-switcher]
@@ -62,7 +63,7 @@ homebrew_casks:
       zsh: completions/claude-switcher.zsh
       fish: completions/claude-switcher.fish
     manpages: [manpages/claude-switcher.1.gz]
-    skip_upload: '{{ if isEnvSet "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
+    skip_upload: '{{ if index .Env "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
     repository:
       owner: nyxon-tech
       name: homebrew-tap
@@ -80,7 +81,7 @@ scoops:
     homepage: https://github.com/nyxon-tech/claude-switcher
     description: Switch Claude Desktop accounts without signing in again, and manage your Claude Code chats.
     license: MIT
-    skip_upload: '{{ if isEnvSet "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
+    skip_upload: '{{ if index .Env "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
     repository:
       owner: nyxon-tech
       name: scoop-bucket
@@ -96,7 +97,7 @@ winget:
     homepage: https://github.com/nyxon-tech/claude-switcher
     release_notes_url: "https://github.com/nyxon-tech/claude-switcher/releases/tag/{{ .Tag }}"
     tags: [claude, cli, tui, account-switcher, persian]
-    skip_upload: '{{ if isEnvSet "WINGET_TOKEN" }}auto{{ else }}true{{ end }}'
+    skip_upload: '{{ if index .Env "WINGET_TOKEN" }}auto{{ else }}true{{ end }}'
     repository:
       owner: nyxon-tech
       name: winget-pkgs
