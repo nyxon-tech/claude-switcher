@@ -7,13 +7,13 @@
   <text x="680" y="112" font-size="19" fill="#aaaec4">about 5 MB per profile, kept in .claude-instances</text>
   <rect x="48" y="152" width="1104" height="96" rx="14" fill="#0e1120" stroke="#303345" stroke-width="1.5"/>
   <text x="80" y="188" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="16" letter-spacing="2" fill="#a8b2ff">SIDEBAR</text>
-  <text x="80" y="222" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">claude-code-sessions\account\*.json</text>
+  <text x="80" y="222" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">claude-code-sessions/&lt;account&gt;/*.json</text>
   <text x="640" y="210" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="26" fill="#a8b2ff">›</text>
   <text x="680" y="194" font-size="22" fill="#f3f0e8">Move, copy or merge chats</text>
   <text x="680" y="224" font-size="19" fill="#aaaec4">Desktop keeps one chat list per account</text>
   <rect x="48" y="264" width="1104" height="96" rx="14" fill="#0e1120" stroke="#303345" stroke-width="1.5"/>
   <text x="80" y="300" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="16" letter-spacing="2" fill="#a8b2ff">HISTORY</text>
-  <text x="80" y="334" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">.claude\projects\...\session.jsonl</text>
+  <text x="80" y="334" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="20" fill="#f3f0e8">.claude/projects/…/&lt;session&gt;.jsonl</text>
   <text x="640" y="322" font-family="'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SF Mono', Menlo, monospace" font-size="26" fill="#a8b2ff">›</text>
   <text x="680" y="306" font-size="22" fill="#f3f0e8">Recover chats from the full history</text>
   <text x="680" y="336" font-size="19" fill="#aaaec4">shared by every account, never modified</text>

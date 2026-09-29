@@ -130,7 +130,7 @@ func newApp(b Build, args []string, stdin io.Reader, stdout, stderr io.Writer) *
 		}
 	}
 	a.mirror = i18n.RTL() && a.mode == rtl.App
-	a.st = newStyles(paletteFor(a.theme(), a.darkBackground()))
+	a.st = newStyles(ui.ThemePalette(a.theme(), a.darkBackground()))
 	return a
 }
 

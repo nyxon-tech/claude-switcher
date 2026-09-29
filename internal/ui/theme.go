@@ -58,8 +58,16 @@ func themePalette(theme string, dark bool) palette {
 	return nyxonDark
 }
 
-// autoTheme reports whether the theme follows the terminal background.
-func autoTheme(theme string) bool { return theme == "" || theme == "auto" || theme == "contrast" }
+// Palette is a theme's colours for output outside the app, such as the command line's. A nil
+// colour leaves the terminal's own.
+type Palette struct{ Text, Muted, Dim, Accent, Line, OK, Warn, Fail color.Color }
+
+// ThemePalette is the palette of a theme ("auto", "dark" or "nyxon-dark", "light" or
+// "nyxon-light", "contrast" or "plain") on a dark or a light terminal background.
+func ThemePalette(theme string, dark bool) Palette {
+	p := themePalette(theme, dark)
+	return Palette{p.text, p.muted, p.dim, p.accent, p.line, p.ok, p.warn, p.fail}
+}
 
 // effectiveTheme is the theme to draw with: NO_COLOR always means plain.
 func effectiveTheme(theme string) string {

@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.0.0
+
+A rewrite from scratch in Go: one binary for Windows, macOS and Linux, with a full-screen app and a command line.
+
+### New
+- **macOS and Linux.** Claude Desktop is found on every OS, including the Windows MSIX and older `.exe` installs side by side. Desktop is asked to quit where the OS allows it (macOS, Linux); on Windows you quit it from the tray and the app waits.
+- **A full-screen app** with tabs: Accounts, Chats, Activity, Usage, Doctor and Settings. Mouse support, dialogs, a step-by-step view of every change, and help for every key.
+- **Chats from every account in one list**, with search as you type, a preview of any chat (first and last prompt, models, dates, recent messages), and export to a web page or Markdown.
+- **Usage**: tokens by model, the last 30 days and the top projects, counted from local transcripts with every API message counted once.
+- **Commands for everything**, with `--json`, `--yes`, `--no-launch`, stable exit codes, shell completions and a man page.
+- **`update`** installs the latest release after checking its checksum, and an optional once-a-day check tells you when one is out.
+- **Installers** that verify the SHA-256 checksum before installing, for Windows (`install.ps1`) and macOS/Linux (`install.sh`).
+
+### Fixed
+- Chat titles in Persian or Arabic showed as `????`. They now display correctly, with letters joined and right-to-left order, even in terminals that cannot lay out right-to-left text themselves, such as Windows Terminal.
+- Recover now reads which older transcripts belong to a chat from Desktop's own records (`priorCliSessionIds`), so an older part of a chat you still have is never offered as a lost chat.
+- Undo skips empty journal entries and orders changes by their recorded time, so it always reverses the change you just made.
+- Switching refuses when Desktop is signed into an account no profile has saved, instead of losing that login.
+- The doctor's warning about the 30-day history cleanup now matches Claude Code: chats from Desktop are kept at any age unless `desktopSessionCleanupPeriodDays` is set.
+
+### Compatibility
+- Saved logins in `~/.claude-instances` and the undo journal from v2 work unchanged. Running the v2 install line upgrades in place.
+
 ## 2.0.3
 
 ### Fixed

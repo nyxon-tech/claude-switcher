@@ -7,24 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/nyxon-tech/claude-switcher/v3/internal/i18n"
+	"github.com/nyxon-tech/claude-switcher/v3/internal/ui"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/update"
 )
-
-// logo is the small Nyxon wordmark, the same as the app's.
-var logo = []string{
-	"▗██▀▀▜█▄ ▐█    ▐█ ▝▜▙▖  ▄█▀ ▄█▛▀▜█▙ ▗▟██▀▜█▖",
-	"█▌    ▐█ ▐█    ▐█   ▝▜▌▜▛▘  █▌    █▌█▌    ▐█",
-	"█▌    ▐█ ▐█▖   ▟█   ▄█▘▜█▄  █▌   ▗█▘█▌    ▐█",
-	"▀▘    ▝▀  ▀▀▀▀▀▜█  ▀▀   ▝▀▘ ▝▀▀▀▀▀▘ ▀▘    ▝▀",
-	"             ▗▟▛▘                          ",
-}
 
 func (a *app) moreCommands() []*cobra.Command {
 	var short bool
@@ -65,7 +55,7 @@ func (a *app) version(short bool) error {
 			"os": runtime.GOOS, "arch": runtime.GOARCH, "install": a.installMethod(), "go": runtime.Version()})
 	}
 	if a.tty {
-		a.print(a.out, a.gradient(logo))
+		a.print(a.out, ui.Logo(a.st.pal))
 		fmt.Fprintln(a.out)
 	}
 	a.print(a.out, a.line(a.st.bold.Render(a.txt(i18n.T("app.name"))), a.st.accent.Render(b.Version), a.st.muted.Render(a.txt(i18n.T("app.by")))))
@@ -83,26 +73,6 @@ func (a *app) version(short bool) error {
 		{i18n.T("cli.version.install"), a.txt(i18n.T("cli.install." + a.installMethod()))},
 	})
 	return nil
-}
-
-// gradient colours art column by column from the accent to the text colour. Brand art is never
-// mirrored.
-func (a *app) gradient(art []string) string {
-	p := a.st.pal
-	if p.accent == nil {
-		return strings.Join(art, "\n")
-	}
-	width := lipgloss.Width(art[0])
-	colors := lipgloss.Blend1D(width, p.accent, p.text)
-	lines := make([]string, len(art))
-	for i, l := range art {
-		var b strings.Builder
-		for j, r := range []rune(l) {
-			b.WriteString(lipgloss.NewStyle().Foreground(colors[min(j, width-1)]).Render(string(r)))
-		}
-		lines[i] = b.String()
-	}
-	return strings.Join(lines, "\n")
 }
 
 // upgradeCommand is what updates this installation.

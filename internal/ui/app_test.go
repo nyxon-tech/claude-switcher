@@ -119,6 +119,7 @@ func fixture(t *testing.T) (*ops.Env, *fakeDesktop) {
 		}
 	}
 	put(t, filepath.Join(env.Vault.Dir, "_current_profile"), "work")
+	put(t, filepath.Join(env.Vault.Dir, "settings.json"), `{"onboarded":true}`) // the welcome was seen
 
 	chats := map[string][]string{
 		workID:   {"Fix the login redirect", "بازنویسی صفحه‌ی ورود", "Release notes"},
@@ -341,4 +342,40 @@ func TestCardsFocusAndClick(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The app looks whether Desktop runs every few seconds and reads the whole state (every chat
+// card) only when that changed, when a tab opens, after a change, and once a minute otherwise.
+func TestStatusPolling(t *testing.T) {
+	env, desk := fixture(t)
+	a := newTestApp(t, env, "en", 100, 30)
+	look := func() { // what the poll finds now
+		running, err := desk.Running()
+		a.Update(pollMsg{running, err})
+	}
+	reads := a.reads
+	want := func(n int, why string) {
+		t.Helper()
+		if a.reads != reads+n {
+			t.Fatalf("%d reads, want %d: %s", a.reads-reads, n, why)
+		}
+	}
+	look()
+	want(0, "Desktop is still closed")
+	desk.Launch()
+	look()
+	want(1, "Desktop started")
+	if !a.Status.Running {
+		t.Error("the pill should show Desktop running at once")
+	}
+	for range readEvery - 1 {
+		look()
+	}
+	want(1, "nothing changed for less than a minute")
+	look()
+	want(2, "a minute passed")
+	press(a, "2")
+	want(3, "a tab opened")
+	a.Update(doneMsg{ok: "done"})
+	want(4, "a change was made")
 }

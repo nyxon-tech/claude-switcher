@@ -30,20 +30,21 @@ var logoSmall = []string{
 	"             ▗▟▛▘                          ",
 }
 
-// gradient colours text column by column, from one colour at the left to the other at the right.
+// gradient colours art column by column, from one colour at the left to the other at the right.
 // The logo is a brand mark, so it is never mirrored for right-to-left languages.
-func gradient(lines []string, from, to color.Color, bold bool) string {
-	width := 0
-	for _, l := range lines {
-		width = max(width, utf8.RuneCountInString(l))
-	}
-	base := lipgloss.NewStyle().Bold(bold)
+func gradient(art []string, from, to color.Color, bold bool) string {
 	if from == nil || to == nil {
-		return base.Render(strings.Join(lines, "\n"))
+		return lipgloss.NewStyle().Bold(bold).Render(strings.Join(art, "\n"))
 	}
-	cols := lipgloss.Blend1D(width, from, to)
+	cols := lipgloss.Blend1D(artWidth(art), from, to)
+	return paint(art, bold, func(x int) color.Color { return cols[x] })
+}
+
+// paint colours art column by column with colour(x); spaces stay unstyled.
+func paint(art []string, bold bool, colour func(x int) color.Color) string {
+	base := lipgloss.NewStyle().Bold(bold)
 	var b strings.Builder
-	for i, l := range lines {
+	for i, l := range art {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
@@ -52,11 +53,22 @@ func gradient(lines []string, from, to color.Color, bold bool) string {
 				b.WriteByte(' ')
 				continue
 			}
-			b.WriteString(base.Foreground(cols[x]).Render(string(r)))
+			b.WriteString(base.Foreground(colour(x)).Render(string(r)))
 		}
 	}
 	return b.String()
 }
+
+func artWidth(art []string) int {
+	width := 0
+	for _, l := range art {
+		width = max(width, utf8.RuneCountInString(l))
+	}
+	return width
+}
+
+// Logo is the small wordmark in a palette's gradient, as the app draws it.
+func Logo(p Palette) string { return gradient(logoSmall, p.Accent, p.Text, false) }
 
 // logos are the wordmarks a window has room for, the large one first.
 func (s Styles) logos(width, height int) []string {

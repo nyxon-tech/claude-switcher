@@ -1,0 +1,24 @@
+nyxon   Accounts · Chats · Activity · Usage · Doctor · Settings           ● work
+──────────────────────────────────────────────━━━━━━────────────────────────────
+                                                                                
+ ✗ 2 things need attention                                ✓ 2   i 3   ! 1   ✗ 1 
+                                                                                
+ ✓ Claude Desktop found: Windows app (MSIX)                                     
+   C:\Users\me\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\  
+   Claude                                                                       
+                                                                                
+ i Claude Desktop is running                                                    
+                                                                                
+ ✓ Signed in as profile work                                                    
+                                                                                
+ i 3 saved profiles                                                             
+   client, personal, work                                                       
+                                                                                
+ ✗ personal: 97 chats                                                           
+   This chat list is a junction or symbolic link. Claude Desktop reads chats    
+   through it but never writes there, so new chats vanish.                      
+   › Replace the link with a real folder that holds a copy of the chats.        
+                                                                                
+ ! 6 chats are on disk but in no chat list                                      
+                                                                                
+↑↓ scroll  r check again  ? more                                          v3.0.0
