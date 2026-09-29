@@ -8,6 +8,8 @@ before:
   hooks:
     - go mod tidy
     - sh scripts/gen-docs.sh
+    # Icon and version info of the Windows exe
+    - go run github.com/tc-hib/go-winres@v0.3.3 make --in cmd/claude-switcher/winres/winres.json --out cmd/claude-switcher/rsrc --arch amd64,arm64 --product-version {{ .Version }} --file-version {{ .Version }}
 
 builds:
   - main: ./cmd/claude-switcher
