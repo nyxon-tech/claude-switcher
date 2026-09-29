@@ -11,9 +11,9 @@ internal/claude            Desktop's chat records ("cards") and chat lists ("spa
 internal/transcript        Claude Code transcripts: metadata, messages, export, usage
 internal/store             our own state: saved logins, current profile, journal, settings
 internal/ops               every action (switch, copy, rescue, undo...). The only writer of Claude data
-internal/rtl               Persian and Arabic for terminals: letter joining and right-to-left order
-internal/i18n              English and Persian text, digits, dates (Jalali), relative time
-internal/ui                theme, logo, layout helpers and the full-screen app (Bubble Tea)
+internal/rtl               right-to-left user data in terminals: letter joining and right-to-left order
+internal/i18n              the English catalogs of every text, numbers, dates, relative time
+internal/ui                theme, brand, layout helpers and the full-screen app (Bubble Tea)
 internal/cli               commands (Cobra + Fang); every UI action is also a command
 ```
 
@@ -54,17 +54,19 @@ Never touched: `Local State` (holds the cookie encryption key), `claude_desktop_
    a chat another card already titles in the same project.
 5. **No credentials are read.** Login items are copied as opaque files. Only the
    `lastKnownAccountUuid` key of `config.json` is parsed.
-6. **Every string shown in a terminal goes through `rtl`,** which reorders and joins Persian in
-   terminals that cannot (Windows Terminal, conhost, VS Code) and leaves it alone in terminals that
-   can (macOS Terminal, iTerm2 3.7+, Konsole).
+6. **Every string shown in a terminal goes through `rtl`.** The interface is English, but user
+   data (chat titles, prompts, project folders, list and profile names) may be Persian, Arabic or
+   Hebrew. `rtl` joins its letters and reorders it in terminals that cannot (Windows Terminal,
+   conhost, VS Code) and leaves it alone in terminals that can (macOS Terminal, iTerm2 3.7+,
+   Konsole).
 
 ## Extending
 
 - **A new OS or install type:** add a file in `internal/platform` that returns an `Install` and
   implements `Desktop`.
-- **A new language:** add `internal/i18n/locales/<lang>/*.json` with the same file names, keys and
-  placeholders as `locales/en`, and register its rules (direction, digits, calendar) in the i18n
-  package. The catalog tests check the rest.
+- **Text:** every string lives in `internal/i18n/locales/en/*.json`; the catalog tests check that
+  each key the code names exists. The interface is English only. A language would go in
+  `locales/<lang>/` with the same files, keys and placeholders, plus a way to pick it in `i18n`.
 - **A new command:** add an `ops` function, then a command in `internal/cli` and, if it needs a
   screen, a screen in `internal/ui`. Commands accept `--json` and return stable exit codes.
 - **A theme:** add a palette in `internal/ui/theme.go`.

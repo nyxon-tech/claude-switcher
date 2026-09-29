@@ -49,7 +49,7 @@ func (s *chatsScreen) View(c *Ctx, width, height int) string {
 	case !s.loaded && s.err != nil:
 		return middle(l, st.Fail.Render(l.Fit(s.err.Error(), width)), width, height)
 	case !s.loaded:
-		return middle(l, l.Inline(s.spinner(c), " ", st.Muted.Render(l.Fit(i18n.T("chats.loading"), width-2))), width, height)
+		return middle(l, s.spinner(c)+" "+st.Muted.Render(l.Fit(i18n.T("chats.loading"), width-2)), width, height)
 	case s.full:
 		return s.fullView(c, width, height)
 	}
@@ -78,21 +78,20 @@ func (s *chatsScreen) chipsLine(c *Ctx, width int) string {
 		n := i18n.N(int64(ch.n))
 		if ch.key == s.chip {
 			open = i
-			parts[i] = st.Badge.Render(" " + l.Inline(name, " ", n) + " ")
+			parts[i] = st.Badge.Render(" " + name + " " + n + " ")
 			continue
 		}
 		count := st.Dim
 		if ch.key == chipLost {
 			count = st.Warn
 		}
-		parts[i] = l.Inline(" ", st.Muted.Render(name), " ", count.Render(n), " ")
+		parts[i] = " " + st.Muted.Render(name) + " " + count.Render(n) + " "
 	}
 	first := 0
 	for first < open && spanWidth(parts[first:open+1]) > width {
 		first++
 	}
-	x := 0
-	var shown []string
+	x, line := 0, ""
 	for i := first; i < len(parts); i++ {
 		w := ansi.StringWidth(parts[i])
 		if x+w > width {
@@ -100,10 +99,10 @@ func (s *chatsScreen) chipsLine(c *Ctx, width int) string {
 		}
 		s.geo.chips = append(s.geo.chips, span{x, x + w})
 		s.geo.chipKeys = append(s.geo.chipKeys, chips[i].key)
-		shown = append(shown, parts[i], " ")
+		line += parts[i] + " "
 		x += w + 1
 	}
-	return l.Pad(l.Inline(shown...), width)
+	return l.Pad(line, width)
 }
 
 // spanWidth is how wide chips are side by side, one cell apart.
@@ -137,13 +136,13 @@ func (s *chatsScreen) searchLine(c *Ctx, width int) string {
 	var field string
 	switch {
 	case q == "":
-		field = l.Inline(caret, st.Dim.Render(l.Fit(i18n.T("chats.search.placeholder"), room)))
+		field = caret + st.Dim.Render(l.Fit(i18n.T("chats.search.placeholder"), room))
 	case dirOf(q) == rtl.RTL:
-		field = l.Inline(caret, st.Text.Render(l.Data(q, room)))
+		field = caret + st.Text.Render(l.Data(q, room))
 	default:
-		field = l.Inline(st.Text.Render(l.Data(q, room)), caret)
+		field = st.Text.Render(l.Data(q, room)) + caret
 	}
-	return l.Row(l.Inline(icon, " ", field), trail, width)
+	return l.Row(icon+" "+field, trail, width)
 }
 
 // panes are the list and the preview: side by side, or the preview under the list in a narrow
@@ -277,39 +276,34 @@ func (s *chatsScreen) rowLine(c *Ctx, r chatRow, cl chatCells, w [3]int, cursor 
 	if cursor {
 		text = text.Bold(true)
 	}
-	parts := []string{" ", " "}
+	lead := "  "
 	if cursor {
-		parts[0] = st.Bar.Render(l.BarGlyph())
+		lead = st.Bar.Render("▌") + " "
 	}
 	if len(s.selected) > 0 {
 		box := st.Dim.Render("☐")
 		if s.selected[r.key] {
 			box = st.Accent.Render("☑")
 		}
-		parts = append(parts, box, " ")
+		lead += box + " "
 	}
-	titleW := max(1, leadW-ansi.StringWidth(strings.Join(parts, "")))
+	titleW := max(1, leadW-ansi.StringWidth(lead))
 	title := text.Render(l.Data(r.Title, titleW))
 	if r.Title == "" {
 		title = st.Dim.Render(l.Fit(i18n.T("chats.untitled"), titleW))
 	}
-	lead := l.Inline(append(parts, title)...)
 
 	when := muted.Render(cl.when)
 	if cl.warn {
-		when = l.Inline(st.Warn.Render("!"), " ", st.Warn.Render(cl.when))
+		when = st.Warn.Render("!") + " " + st.Warn.Render(cl.when)
 	}
 	var cols []string
 	for j, t := range []string{muted.Render(cl.proj), when, accent.Render(cl.label)} {
-		if w[j] == 0 {
-			continue
+		if w[j] > 0 {
+			cols = append(cols, l.Pad(t, w[j]))
 		}
-		if len(cols) > 0 {
-			cols = append(cols, "  ")
-		}
-		cols = append(cols, l.Pad(t, w[j]))
 	}
-	return l.Row(lead, l.Inline(cols...), width)
+	return l.Row(lead+title, strings.Join(cols, "  "), width)
 }
 
 // emptyLines explain an empty list: no match, no lost chats, or no chats at all.

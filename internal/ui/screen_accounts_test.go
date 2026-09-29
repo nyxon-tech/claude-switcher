@@ -14,7 +14,7 @@ import (
 // m on the account in use shows the plan's counts, then copies the other account's chats in.
 func TestMergeBringsChats(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	a.Update(press(a, "m")()) // work has one chat list, so the plan is worked out at once
 	if a.dialog == nil || !strings.Contains(a.dialog.body, i18n.T("ui.merge.counts", "new", 2, "updated", 0, "newer", 0)) {
 		t.Fatalf("m should show the plan's counts first; dialog %+v", a.dialog)
@@ -33,7 +33,7 @@ func TestMergeBringsChats(t *testing.T) {
 // A plan that arrives after the user started something else is dropped, never opened over it.
 func TestLateMergePlanIsDropped(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	plan := press(a, "m")
 	press(a, "left", "enter") // switch to personal meanwhile
 	a.Update(plan())
@@ -46,7 +46,7 @@ func TestLateMergePlanIsDropped(t *testing.T) {
 // focused.
 func TestRenameAndRemove(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := a.screens[0].(*accountsScreen)
 	s.focus = 0 // client
 	press(a, "r")
@@ -72,31 +72,27 @@ func TestRenameAndRemove(t *testing.T) {
 
 // A box taller than a short window drops its blank lines so its buttons stay on screen.
 func TestTallDialogFits(t *testing.T) {
-	for _, lang := range []string{"en", "fa"} {
-		t.Run(lang, func(t *testing.T) {
-			env, _ := fixture(t)
-			a := newTestApp(t, env, lang, 60, 18)
-			press(a, "n", "!", "x", "enter")
-			if a.dialog == nil || a.dialog.problem == "" {
-				t.Fatal("a bad name should keep the dialog open with the problem")
-			}
-			checkFrame(t, a)
-			box := a.dialog.view(a.Ctx, a.Width, a.Height-2)
-			last := ansi.Strip(box[strings.LastIndex(box, "\n")+1:])
-			if h := lipgloss.Height(box); h > a.Height-2 || !strings.Contains(last, "╰") {
-				t.Errorf("the box is %d rows for %d, last row %q:\n%s", h, a.Height-2, last, ansi.Strip(box))
-			}
-			if text := strings.Join(screen(a), "\n"); !strings.Contains(text, a.L().Text(i18n.T("action.add"))) {
-				t.Errorf("the Add button should stay on screen:\n%s", text)
-			}
-		})
+	env, _ := fixture(t)
+	a := newTestApp(t, env, 60, 18)
+	press(a, "n", "!", "x", "enter")
+	if a.dialog == nil || a.dialog.problem == "" {
+		t.Fatal("a bad name should keep the dialog open with the problem")
+	}
+	checkFrame(t, a)
+	box := a.dialog.view(a.Ctx, a.Width, a.Height-2)
+	last := ansi.Strip(box[strings.LastIndex(box, "\n")+1:])
+	if h := lipgloss.Height(box); h > a.Height-2 || !strings.Contains(last, "╰") {
+		t.Errorf("the box is %d rows for %d, last row %q:\n%s", h, a.Height-2, last, ansi.Strip(box))
+	}
+	if text := strings.Join(screen(a), "\n"); !strings.Contains(text, i18n.T("action.add")) {
+		t.Errorf("the Add button should stay on screen:\n%s", text)
 	}
 }
 
 // A slow status read that returns after a newer one never replaces it.
 func TestOlderStatusIsIgnored(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	older := a.Refresh()()
 	if err := env.Vault.SetCurrent("personal"); err != nil {
 		t.Fatal(err)

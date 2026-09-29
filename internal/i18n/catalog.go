@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"path"
 	"reflect"
 	"strings"
 )
@@ -13,64 +12,29 @@ import (
 //go:embed locales
 var localeFS embed.FS
 
-var catalogs = loadCatalogs(localeFS)
+// english is the catalog T reads.
+var english = load(localeFS)
 
-// rules are what a language needs beyond its text. A language missing from langRules writes
-// like English.
-type rules struct {
-	rtl         bool
-	zero        rune // the language's digit zero; 0 means ASCII digits and signs
-	group       rune // thousands separator used with the language's digits
-	decimal     rune // decimal separator used with the language's digits
-	percent     rune // percent sign used with the language's digits
-	jalali      bool // dates use the Jalali calendar unless turned off
-	alwaysOther bool // nouns stay singular after numbers, so ".one" is never used
-}
+// catalog is a language's text: keys to strings.
+type catalog map[string]string
 
-var langRules = map[string]rules{
-	"fa": {rtl: true, zero: '۰', group: '٬', decimal: '٫', percent: '٪', jalali: true, alwaysOther: true},
-}
-
-// catalog is one language's text and rules.
-type catalog struct {
-	lang     string
-	text     map[string]string
-	rules    rules
-	fallback *catalog // English, for keys this language lacks
-}
-
-// loadCatalogs merges locales/<lang>/*.json per language. A broken or clashing file is a build
+// load merges locales/en/*.json. A broken file, or a key defined in two files, is a build
 // mistake that every test run catches, so it panics.
-func loadCatalogs(fsys fs.FS) map[string]*catalog {
-	files, err := fs.Glob(fsys, "locales/*/*.json")
-	if err != nil {
-		panic(err)
+func load(fsys fs.FS) catalog {
+	files, err := fs.Glob(fsys, "locales/en/*.json")
+	if err != nil || len(files) == 0 {
+		panic("i18n: no English catalog")
 	}
-	cats := map[string]*catalog{}
+	c := catalog{}
 	for _, name := range files {
-		lang := path.Base(path.Dir(name))
-		c := cats[lang]
-		if c == nil {
-			c = &catalog{lang: lang, text: map[string]string{}, rules: langRules[lang]}
-			cats[lang] = c
-		}
 		if err := c.add(fsys, name); err != nil {
 			panic("i18n: " + err.Error())
 		}
 	}
-	en := cats["en"]
-	if en == nil {
-		panic("i18n: no English catalog")
-	}
-	for _, c := range cats {
-		if c != en {
-			c.fallback = en
-		}
-	}
-	return cats
+	return c
 }
 
-func (c *catalog) add(fsys fs.FS, name string) error {
+func (c catalog) add(fsys fs.FS, name string) error {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return err
@@ -80,39 +44,36 @@ func (c *catalog) add(fsys fs.FS, name string) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	for k, v := range text {
-		if _, dup := c.text[k]; dup {
+		if _, dup := c[k]; dup {
 			return fmt.Errorf("%s: key %q is already defined in another file", name, k)
 		}
-		c.text[k] = v
+		c[k] = v
 	}
 	return nil
 }
 
-func (c *catalog) t(key string, args ...any) string {
-	n, counted := count(args)
-	for from := c; from != nil; from = from.fallback {
-		if text, ok := from.lookup(key, n, counted); ok {
-			return c.fill(text, args)
-		}
+func (c catalog) t(key string, args ...any) string {
+	if text, ok := c.lookup(key, args); ok {
+		return fill(text, args)
 	}
 	return key
 }
 
-func (c *catalog) lookup(key string, n int64, counted bool) (string, bool) {
-	if counted {
+func (c catalog) lookup(key string, args []any) (string, bool) {
+	if n, counted := count(args); counted {
 		form := ".other"
-		if n == 1 && !c.rules.alwaysOther {
+		if n == 1 {
 			form = ".one"
 		}
-		if text, ok := c.text[key+form]; ok {
+		if text, ok := c[key+form]; ok {
 			return text, true
 		}
 	}
-	text, ok := c.text[key]
+	text, ok := c[key]
 	return text, ok
 }
 
-func (c *catalog) fill(text string, args []any) string {
+func fill(text string, args []any) string {
 	if len(args) < 2 || !strings.Contains(text, "{") {
 		return text
 	}
@@ -121,7 +82,7 @@ func (c *catalog) fill(text string, args []any) string {
 		name, _ := args[i].(string)
 		value := fmt.Sprint(args[i+1])
 		if v, ok := integer(args[i+1]); ok {
-			value = c.n(v)
+			value = N(v)
 		}
 		pairs = append(pairs, "{"+name+"}", value)
 	}
@@ -155,20 +116,4 @@ func integer(v any) (int64, bool) {
 		return int64(rv.Uint()), true
 	}
 	return 0, false
-}
-
-// supported is the language of a locale name when it has a catalog, else "en".
-func supported(locale string) string {
-	if lang := baseLang(locale); catalogs[lang] != nil {
-		return lang
-	}
-	return "en"
-}
-
-// baseLang is the language part of a locale name: "fa_IR.UTF-8" and "fa-IR" give "fa".
-func baseLang(locale string) string {
-	if i := strings.IndexAny(locale, "_-.@"); i >= 0 {
-		locale = locale[:i]
-	}
-	return strings.ToLower(locale)
 }

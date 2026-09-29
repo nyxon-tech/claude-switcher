@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -16,6 +17,7 @@ import (
 	"github.com/nyxon-tech/claude-switcher/v3/internal/ops"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/platform"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/rtl"
+	"github.com/nyxon-tech/claude-switcher/v3/internal/store"
 )
 
 const (
@@ -136,11 +138,9 @@ func fixture(t *testing.T) (*ops.Env, *fakeDesktop) {
 	return env, desk
 }
 
-// newTestApp is the app at a fixed size in a language, with its state read.
-func newTestApp(t *testing.T, env *ops.Env, lang string, width, height int) *app {
+// newTestApp is the app at a fixed size, with its state read.
+func newTestApp(t *testing.T, env *ops.Env, width, height int) *app {
 	t.Helper()
-	i18n.Load(lang)
-	t.Cleanup(func() { i18n.Load("en") })
 	a := newApp(env, Options{Version: "3.0.0", Mode: rtl.App, Theme: "dark"})
 	a.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	a.Update(a.Refresh()())
@@ -185,72 +185,97 @@ func checkFrame(t *testing.T, a *app) {
 	}
 }
 
+// Accounts at every size the goldens keep: the hero when there is room, the cards, the header.
 func TestAppFrames(t *testing.T) {
-	for _, lang := range []string{"en", "fa"} {
-		for _, size := range [][2]int{{80, 24}, {120, 40}} {
-			t.Run(fmt.Sprintf("%s_%dx%d", lang, size[0], size[1]), func(t *testing.T) {
-				env, _ := fixture(t)
-				a := newTestApp(t, env, lang, size[0], size[1])
-				checkFrame(t, a)
-				l := a.L()
-				text := strings.Join(screen(a), "\n")
-				for _, want := range []string{
-					"work", "personal", "client", "v3.0.0",
-					l.Text(i18n.T("ui.badge.active")),
-					l.Text(i18n.T("count.chats", "n", 3)),
-					l.Text(i18n.T("ui.accounts.saved", "ago", i18n.Ago(now.Add(-2*time.Hour), now))),
-					l.Text(i18n.T("ui.accounts.add")),
-					l.Text(i18n.T("tab.settings")),
-					"0ce4cc0c",
-				} {
-					if !strings.Contains(text, want) {
-						t.Errorf("frame lacks %q", want)
-					}
+	for _, size := range [][2]int{{60, 18}, {80, 24}, {120, 40}} {
+		t.Run(fmt.Sprintf("en_%dx%d", size[0], size[1]), func(t *testing.T) {
+			env, _ := fixture(t)
+			a := newTestApp(t, env, size[0], size[1])
+			checkFrame(t, a)
+			text := strings.Join(screen(a), "\n")
+			for _, want := range []string{
+				"work", "personal", "client", "v3.0.0", "0ce4cc0c",
+				i18n.T("ui.badge.active"), i18n.T("count.chats", "n", 3), i18n.T("ui.accounts.add"), i18n.T("tab.settings"),
+				i18n.T("ui.accounts.saved", "ago", i18n.Ago(now.Add(-2*time.Hour), now)), i18n.T("app.tagline"),
+			} {
+				if !strings.Contains(text, want) {
+					t.Errorf("frame lacks %q", want)
 				}
-				golden.RequireEqual(t, text)
-			})
-		}
+			}
+			if hero := strings.Contains(text, "C L A U D E   S W I T C H E R"); hero != (size[1] >= 24) {
+				t.Errorf("the hero shows: %v; want it only where it fits", hero)
+			}
+			golden.RequireEqual(t, text)
+		})
 	}
 }
 
-// The header mirrors in Persian: tabs from the right edge in reading order, the pill at the left.
-func TestHeaderMirrors(t *testing.T) {
-	for _, lang := range []string{"en", "fa"} {
-		t.Run(lang, func(t *testing.T) {
+// The header reads left to right: the brand, the tabs, and the status pill at the right edge.
+// As the window narrows, "by nyxon" goes first, then the pill's detail, then the brand.
+func TestHeader(t *testing.T) {
+	pill, by := " "+i18n.T("app.name")+" ", i18n.T("app.by")+" nyxon"
+	for _, tc := range []struct {
+		width         int
+		brand, status string
+	}{
+		{120, pill + " " + by + "   ", "● work  " + i18n.T("ui.desktop.closed")},
+		{100, pill + "   ", "● work  " + i18n.T("ui.desktop.closed")},
+		{80, pill + "   ", "● work"},
+		{60, "", "● work"},
+	} {
+		t.Run(fmt.Sprint(tc.width), func(t *testing.T) {
 			env, _ := fixture(t)
-			a := newTestApp(t, env, lang, 120, 40)
+			a := newTestApp(t, env, tc.width, 30)
 			line, tabs := a.header()
-			l := a.L()
 			for i, s := range a.screens {
-				if got, want := ansi.Strip(ansi.Cut(line, tabs[i].x0, tabs[i].x1)), l.Text(s.Title()); got != want {
-					t.Errorf("tab %d spans %q, want %q", i, got, want)
+				if got := ansi.Strip(ansi.Cut(line, tabs[i].x0, tabs[i].x1)); got != s.Title() {
+					t.Errorf("tab %d spans %q, want %q", i, got, s.Title())
 				}
 			}
-			first, last := tabs[0], tabs[len(tabs)-1]
 			row := ansi.Strip(line)
-			brand := "nyxon " + i18n.T("app.name") // a brand lockup: the same in both languages
-			if lang == "en" {
-				if first.x0 >= last.x0 || !strings.HasPrefix(row, brand) || strings.HasSuffix(row, " ") {
-					t.Errorf("english header should read left to right with the pill at the right edge: %q", row)
-				}
-				return
+			if ansi.StringWidth(line) != tc.width || !strings.HasPrefix(row, tc.brand+a.screens[0].Title()) || !strings.HasSuffix(row, tc.status) {
+				t.Errorf("header %q: want %q, the tabs, and %q at the right edge", row, tc.brand, tc.status)
 			}
-			if first.x0 <= last.x0 || !strings.HasSuffix(row, brand) || strings.HasPrefix(row, " ") {
-				t.Errorf("persian header should start at the right edge with the pill at the left: %q", row)
-			}
-			if first.x1 <= a.Width/2 {
-				t.Errorf("first tab ends at %d, want it in the right half of %d", first.x1, a.Width)
-			}
-			if div := ansi.Strip(a.divider(tabs)); []rune(div)[first.x0] != '━' || []rune(div)[first.x0-1] != '─' {
-				t.Errorf("the underline should sit under the first tab: %q", div)
+			if div := []rune(ansi.Strip(a.divider(tabs))); div[tabs[0].x0] != '━' || div[tabs[0].x1] != '─' {
+				t.Errorf("the underline should sit under the first tab: %q", string(div))
 			}
 		})
 	}
 }
 
+// The hero is the brand as a title block, centred: the star, the spaced name, "by nyxon" and the
+// tagline; below 40 cells the star and the name share a line. Every line is as wide as asked.
+func TestHero(t *testing.T) {
+	st := newStyles("dark", true)
+	for _, tc := range []struct {
+		width int
+		title string
+	}{{120, "C L A U D E   S W I T C H E R"}, {60, "C L A U D E   S W I T C H E R"}, {39, "✦ Claude Switcher"}} {
+		lines := st.hero(Layout{Mode: rtl.App}, tc.width)
+		text := ansi.Strip(strings.Join(lines, "\n"))
+		for _, want := range []string{tc.title, i18n.T("app.by") + " nyxon", "Switch Claude accounts"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%d cells: the hero lacks %q:\n%s", tc.width, want, text)
+			}
+		}
+		for _, line := range lines {
+			plain := ansi.Strip(line)
+			lead, trail := len(plain)-len(strings.TrimLeft(plain, " ")), len(plain)-len(strings.TrimRight(plain, " "))
+			if w := ansi.StringWidth(line); w != tc.width || strings.TrimSpace(plain) != "" && (trail < lead || trail > lead+1) {
+				t.Errorf("%d cells: line %q is %d cells, %d and %d cells in", tc.width, plain, w, lead, trail)
+			}
+		}
+	}
+	plain := newStyles("plain", true)
+	pill := plain.Badge.Render(" " + i18n.T("app.name") + " ")
+	if b := plain.brand(true); !plain.Badge.GetReverse() || !plain.Badge.GetBold() || !strings.HasPrefix(b, pill) || strings.Contains(b, "38;2") {
+		t.Errorf("the plain theme draws the pill bold in reverse video, and nyxon without colour: %q", b)
+	}
+}
+
 func TestTabsSwitch(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "3")
 	if a.tab != 2 {
 		t.Fatalf("3 should open tab 3, got %d", a.tab)
@@ -272,7 +297,7 @@ func TestTabsSwitch(t *testing.T) {
 
 func TestTooSmall(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 50, 15)
+	a := newTestApp(t, env, 50, 15)
 	checkFrame(t, a)
 	if text := strings.Join(screen(a), "\n"); !strings.Contains(text, i18n.T("ui.too_small")) {
 		t.Errorf("a 50x15 window should ask to be larger, got:\n%s", text)
@@ -284,7 +309,7 @@ func TestEmptyAccounts(t *testing.T) {
 	if err := os.RemoveAll(env.Vault.Dir); err != nil {
 		t.Fatal(err)
 	}
-	a := newTestApp(t, env, "en", 80, 24)
+	a := newTestApp(t, env, 80, 24)
 	checkFrame(t, a)
 	text := strings.Join(screen(a), "\n")
 	if !strings.Contains(text, i18n.T("ui.accounts.empty.title")) || !strings.Contains(text, i18n.T("ui.accounts.empty.action")) {
@@ -297,48 +322,90 @@ func TestEmptyAccounts(t *testing.T) {
 	checkFrame(t, a)
 }
 
-// Focus starts on the profile in use; arrows and clicks follow the cards as drawn, mirrored in
-// Persian; clicking the focused card acts on it.
+// Focus starts on the profile in use; arrows and clicks follow the cards as drawn; clicking the
+// focused card acts on it.
 func TestCardsFocusAndClick(t *testing.T) {
-	for _, tc := range []struct {
-		lang             string
-		right, leftClick int // focus after right from work (2), and the index of the leftmost card
-	}{{"en", 3, 0}, {"fa", 1, 2}} {
-		t.Run(tc.lang, func(t *testing.T) {
+	env, _ := fixture(t)
+	a := newTestApp(t, env, 120, 40)
+	a.View()
+	s := a.screens[0].(*accountsScreen)
+	if s.focus != 2 {
+		t.Fatalf("focus starts on %d, want the profile in use (2)", s.focus)
+	}
+	press(a, "right")
+	if s.focus != 3 {
+		t.Errorf("right moved focus to %d, want the add card (3)", s.focus)
+	}
+	if press(a, "left"); s.focus != 2 {
+		t.Errorf("left should undo right, focus is %d", s.focus)
+	}
+	a.View()
+	g := s.geo
+	click := func(col int) {
+		a.Update(tea.MouseClickMsg{X: g.x + col*(g.cardW+gapX) + g.cardW/2, Y: 2 + g.y + 1, Button: tea.MouseLeft})
+	}
+	click(1)
+	if s.focus != 1 {
+		t.Errorf("clicking the middle card focused %d, want 1", s.focus)
+	}
+	click(0)
+	if s.focus != 0 || a.runner != nil {
+		t.Fatalf("a first click on the left card should only focus it; focus %d", s.focus)
+	}
+	click(0) // client, so it switches
+	if a.runner == nil {
+		t.Error("clicking the focused card should act on it")
+	}
+}
+
+// Persian user data reads right on Accounts, Activity and Usage (Chats has its own tests): laid
+// out by the app (rtl.App) its letters are joined and in visual order, left to the terminal
+// (rtl.Terminal) it passes through as typed. Either way it keeps to its column: a card, a row
+// and a bar stay exactly as wide as they are drawn, whatever name they hold.
+func TestPersianData(t *testing.T) {
+	const name = "مشتری"                            // a profile
+	const long = "حساب کاری شرکت بازاریابی دیجیتال" // too long for any column
+	for _, mode := range []rtl.Mode{rtl.App, rtl.Terminal} {
+		t.Run(mode.String(), func(t *testing.T) {
 			env, _ := fixture(t)
-			a := newTestApp(t, env, tc.lang, 120, 40)
-			a.View()
-			s := a.screens[0].(*accountsScreen)
-			if s.focus != 2 {
-				t.Fatalf("focus starts on %d, want the profile in use (2)", s.focus)
+			if err := env.Vault.Rename("client", name); err != nil {
+				t.Fatal(err)
 			}
-			press(a, "right")
-			if s.focus != tc.right {
-				t.Errorf("right moved focus to %d, want %d", s.focus, tc.right)
+			activityFixture(t, env) // a change into a list named خانه
+			usageFixture(t, env)    // a project folder named بازاریابی
+			a := newTestApp(t, env, 100, 30)
+			a.Opts.Mode = mode
+			for _, tc := range []struct{ tab, text string }{{"1", name}, {activityTab, "خانه"}, {usageTab, "بازاریابی"}} {
+				deliver(a, press(a, tc.tab))
+				checkFrame(t, a)
+				frame, want := frameText(a), tc.text
+				if mode == rtl.App {
+					want = rtl.Visual(tc.text, rtl.DirAuto)
+				}
+				bare := strings.ContainsFunc(frame, func(r rune) bool { return unicode.IsLetter(r) && r >= 0x0600 && r <= 0x06ff })
+				if !strings.Contains(frame, want) || bare != (mode == rtl.Terminal) {
+					t.Errorf("tab %s should show %q, and bare Arabic letters only in terminal mode (%v):\n%s", tc.tab, want, bare, frame)
+				}
 			}
-			if press(a, "left"); s.focus != 2 {
-				t.Errorf("left should undo right, focus is %d", s.focus)
-			}
-			a.View()
-			g := s.geo
-			click := func(col int) {
-				a.Update(tea.MouseClickMsg{X: g.x + col*(g.cardW+gapX) + g.cardW/2, Y: 2 + g.y + 1, Button: tea.MouseLeft})
-			}
-			click(1)
-			if s.focus != 1 {
-				t.Errorf("clicking the middle card focused %d, want 1", s.focus)
-			}
-			click(0)
-			if s.focus != tc.leftClick {
-				t.Errorf("clicking the left card focused %d, want %d", s.focus, tc.leftClick)
-			}
-			if a.runner != nil {
-				t.Fatal("a first click should only focus")
-			}
-			// In English the left card is client, so it switches; in Persian it is work, in use already.
-			click(0)
-			if a.runner == nil && a.toast.text != i18n.T("ops.err.already-current", "name", "work") {
-				t.Error("clicking the focused card should act on it")
+
+			c := a.Ctx
+			card := profileCard(c, ops.Profile{Name: long, Current: true, SignedIn: true, Account: workID}, true, maxCardW)
+			summary := i18n.T("ops.done.copy", "n", 1, "from", "work", "to", long)
+			row := a.screens[2].(*activityScreen).row(c, store.Journal{Summary: summary, At: now}, true, 70)
+			for _, tc := range []struct {
+				what  string
+				lines []string
+				width int
+			}{
+				{"card", strings.Split(card, "\n"), maxCardW},
+				{"activity row", []string{row}, 70},
+				{"usage bar", shareRows(c, []share{{long, 5}, {"api", 3}}, 8, 50), 50},
+			} {
+				for _, line := range tc.lines {
+					if w := ansi.StringWidth(line); w != tc.width {
+						t.Errorf("a %s line is %d cells, want %d: %q", tc.what, w, tc.width, ansi.Strip(line))
+					}
+				}
 			}
 		})
 	}
@@ -348,7 +415,7 @@ func TestCardsFocusAndClick(t *testing.T) {
 // card) only when that changed, when a tab opens, after a change, and once a minute otherwise.
 func TestStatusPolling(t *testing.T) {
 	env, desk := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	look := func() { // what the poll finds now
 		running, err := desk.Running()
 		a.Update(pollMsg{running, err})

@@ -22,7 +22,6 @@
 	"settings.key.open": "open",
 	"settings.unsaved": "The settings file could not be read, so this change lasts until you quit: {error}",
 	"settings.save_failed": "Could not save the settings: {error}",
-	"welcome.title": "Welcome to Claude Switcher",
 	"welcome.save.title": "Save the account Claude Desktop is signed into",
 	"welcome.save.body": "Give it a name to switch back to it any time.",
 	"welcome.done": "All set. Switch accounts from here any time.",

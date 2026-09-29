@@ -212,11 +212,11 @@ func (r *runner) view(c *Ctx, width, height int) string {
 		case active:
 			icon = r.spin.View()
 		}
-		lines = append(lines, l.Pad(l.Inline(icon, " ", st.Text.Render(l.Fit(text, inner-2))), inner))
+		lines = append(lines, l.Pad(icon+" "+st.Text.Render(l.Fit(text, inner-2)), inner))
 	}
 	block := func(style func(...string) string, text string, indent string) {
 		for _, t := range l.Wrap(text, inner-len(indent)) {
-			lines = append(lines, l.Pad(l.Inline(indent, style(t)), inner))
+			lines = append(lines, l.Pad(indent+style(t), inner))
 		}
 	}
 	if r.waited {

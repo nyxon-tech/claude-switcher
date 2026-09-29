@@ -103,7 +103,7 @@ func usageFixture(t *testing.T, env *ops.Env) {
 	}
 }
 
-// sampleChecks are a doctor's report with every level, long lines and paths, in the current language.
+// sampleChecks are a doctor's report with every level, long lines and paths.
 func sampleChecks() []ops.Check {
 	return []ops.Check{
 		{Level: ops.OK, Title: i18n.T("ops.doctor.install", "kind", i18n.T("ops.kind.msix")),
@@ -213,7 +213,7 @@ func TestInsightsFrames(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/en_%dx%d", tab.name, size[0], size[1]), func(t *testing.T) {
 				utcClock(t)
 				env, _ := fixture(t)
-				a := newTestApp(t, env, "en", size[0], size[1])
+				a := newTestApp(t, env, size[0], size[1])
 				tab.open(t, a)
 				checkFrame(t, a)
 				golden.RequireEqual(t, frameText(a))
@@ -224,7 +224,7 @@ func TestInsightsFrames(t *testing.T) {
 
 func TestActivityStates(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, activityTab) // the history is not read yet
 	wantIn(t, a, i18n.T("state.loading"))
 
@@ -251,7 +251,7 @@ func TestActivityStates(t *testing.T) {
 func TestActivityDetails(t *testing.T) {
 	env, _ := fixture(t)
 	activityFixture(t, env)
-	a := newTestApp(t, env, "en", 80, 24)
+	a := newTestApp(t, env, 80, 24)
 	s := openActivity(a)
 	if tap(a, "down", "down", "enter"); !s.open {
 		t.Fatal("enter should open the details")
@@ -268,7 +268,7 @@ func TestActivityDetails(t *testing.T) {
 func TestActivityDetailsCountsTheRest(t *testing.T) {
 	env, _ := fixture(t)
 	activityFixture(t, env)
-	a := newTestApp(t, env, "en", 60, 18)
+	a := newTestApp(t, env, 60, 18)
 	s := openActivity(a)
 	tap(a, "end", "enter")
 	if !s.open {
@@ -311,7 +311,7 @@ func TestActivityUndo(t *testing.T) {
 	}
 	desk.running = true
 
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := openActivity(a)
 	press(a, "u")
 	if a.dialog == nil || !strings.Contains(a.dialog.body, res.Summary) {
@@ -350,7 +350,7 @@ func TestActivityUndo(t *testing.T) {
 func TestActivityMouse(t *testing.T) {
 	env, _ := fixture(t)
 	activityFixture(t, env)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := openActivity(a)
 	a.View() // clicks land on what was drawn
 	click := func(row int) { a.Update(tea.MouseClickMsg{X: 10, Y: 2 + listTop + row, Button: tea.MouseLeft}) }
@@ -376,7 +376,7 @@ func TestActivityMouse(t *testing.T) {
 func TestUsageProgress(t *testing.T) {
 	env, _ := fixture(t)
 	usageFixture(t, env)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := a.screens[3].(*usageScreen)
 	var progress []usageProgressMsg
 	for cmd := s.read(a.Ctx); cmd != nil; {
@@ -415,7 +415,7 @@ func TestUsageProgress(t *testing.T) {
 
 func TestUsageStates(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := openUsage(a)
 	wantIn(t, a, i18n.T("insights.usage.empty.title"))
 
@@ -433,7 +433,7 @@ func TestUsageStates(t *testing.T) {
 func TestUsageScrolls(t *testing.T) {
 	env, _ := fixture(t)
 	usageFixture(t, env)
-	a := newTestApp(t, env, "en", 60, 18)
+	a := newTestApp(t, env, 60, 18)
 	s := openUsage(a)
 	checkFrame(t, a)
 	if s.scroll.max == 0 {
@@ -446,7 +446,7 @@ func TestUsageScrolls(t *testing.T) {
 
 func TestDoctorStates(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := a.screens[4].(*doctorScreen)
 	if cmd := press(a, doctorTab); cmd == nil || !s.loading {
 		t.Fatal("opening Doctor should start the checks")
@@ -474,7 +474,7 @@ func TestDoctorStates(t *testing.T) {
 
 func TestDoctorScrolls(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 60, 18)
+	a := newTestApp(t, env, 60, 18)
 	s := a.screens[4].(*doctorScreen)
 	press(a, doctorTab)
 	a.Update(doctorMsg(sampleChecks()))
@@ -494,7 +494,7 @@ func TestDoctorScrolls(t *testing.T) {
 // tallies every level.
 func TestDoctorLevels(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, doctorTab)
 	icons := map[ops.Level]string{ops.OK: "✓", ops.Info: "i", ops.Warn: "!", ops.Fail: "✗"}
 	for _, tc := range []struct {
@@ -525,7 +525,7 @@ func TestDoctorLevels(t *testing.T) {
 // A single reply today fills only the chart's last column: today is at the right edge.
 func TestUsageChartToday(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 80, 24)
+	a := newTestApp(t, env, 80, 24)
 	s := &usageScreen{stats: transcript.Stats{ByDay: map[string]transcript.Usage{now.Local().Format(time.DateOnly): {Output: 500}}}}
 	chart := s.chart(a.Ctx, 78, false)
 	for _, row := range chart[1:5] { // the columns, under the title
@@ -544,7 +544,7 @@ func TestInsightsFitAnySize(t *testing.T) {
 	env, _ := fixture(t)
 	activityFixture(t, env)
 	usageFixture(t, env)
-	a := newTestApp(t, env, "en", 60, 18)
+	a := newTestApp(t, env, 60, 18)
 	s := openActivity(a)
 	openUsage(a)
 	press(a, doctorTab)

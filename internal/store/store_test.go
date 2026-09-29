@@ -337,18 +337,19 @@ func TestSettings(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(s, DefaultSettings()) {
 		t.Fatalf("defaults = %+v, %v", s, err)
 	}
-	put(t, filepath.Join(v.Dir, "settings.json"), `{"lang":"fa","future":{"a":[1,2]},"jalali":false}`)
+	// Keys this version does not use (an earlier one's language, a later one's anything) stay.
+	put(t, filepath.Join(v.Dir, "settings.json"), `{"lang":"fa","future":{"a":[1,2]},"rtl":"off"}`)
 	s, err = v.Settings()
-	if err != nil || s.Lang != "fa" || s.Jalali || !s.PersianDigits || s.Theme != "auto" {
+	if err != nil || s.RTL != "off" || s.Theme != "auto" || !s.UpdateCheck {
 		t.Fatalf("read = %+v, %v", s, err)
 	}
 	s.Onboarded = true
 	must(t, v.SaveSettings(s))
 	text := read(t, filepath.Join(v.Dir, "settings.json"))
-	if !strings.Contains(text, `"future": {`) || !strings.Contains(text, `"onboarded": true`) {
+	if !strings.Contains(text, `"future": {`) || !strings.Contains(text, `"lang": "fa"`) || !strings.Contains(text, `"onboarded": true`) {
 		t.Errorf("unknown keys lost or setting not saved:\n%s", text)
 	}
-	if again, _ := v.Settings(); !again.Onboarded || again.Lang != "fa" {
+	if again, _ := v.Settings(); !again.Onboarded || again.RTL != "off" {
 		t.Error("settings did not round trip")
 	}
 }

@@ -10,20 +10,17 @@ import (
 
 // Settings are the user's choices, kept in settings.json in the vault.
 type Settings struct {
-	Lang          string `json:"lang"`  // "en", "fa", or "" to follow the system
-	Theme         string `json:"theme"` // "auto", "nyxon-dark", "nyxon-light", "contrast" or "plain"
-	RTL           string `json:"rtl"`   // rtl mode: "auto", "app", "terminal" or "off"
-	PersianDigits bool   `json:"persianDigits"`
-	Jalali        bool   `json:"jalali"`
-	UpdateCheck   bool   `json:"updateCheck"`
-	Onboarded     bool   `json:"onboarded"`
+	Theme       string `json:"theme"` // "auto", "nyxon-dark", "nyxon-light", "contrast" or "plain"
+	RTL         string `json:"rtl"`   // how right-to-left chat titles are drawn: "auto", "app", "terminal" or "off"
+	UpdateCheck bool   `json:"updateCheck"`
+	Onboarded   bool   `json:"onboarded"`
 
-	other map[string]json.RawMessage // keys a newer version wrote, kept as they are
+	other map[string]json.RawMessage // keys another version wrote, kept as they are
 }
 
 // DefaultSettings are the settings before the user changes anything.
 func DefaultSettings() Settings {
-	return Settings{Theme: "auto", RTL: "auto", PersianDigits: true, Jalali: true, UpdateCheck: true}
+	return Settings{Theme: "auto", RTL: "auto", UpdateCheck: true}
 }
 
 // Settings reads settings.json; missing keys keep their defaults.

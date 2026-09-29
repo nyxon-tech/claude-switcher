@@ -65,7 +65,7 @@ func TestSettingsFrames(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		t.Run(fmt.Sprintf("en_%dx%d", size[0], size[1]), func(t *testing.T) {
 			env, _ := fixture(t)
-			a := newTestApp(t, env, "en", size[0], size[1])
+			a := newTestApp(t, env, size[0], size[1])
 			press(a, "6")
 			checkFrame(t, a)
 			text := strings.Join(screen(a), "\n")
@@ -87,7 +87,7 @@ func TestSettingsFrames(t *testing.T) {
 func TestSettingsTheme(t *testing.T) {
 	env, _ := fixture(t)
 	put(t, filepath.Join(env.Vault.Dir, "settings.json"), `{"onboarded":true,"fromTheFuture":7}`)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6")
 	for _, want := range []string{"nyxon-dark", "nyxon-light", "contrast", "plain", "auto"} {
 		settle(a, press(a, "right"))
@@ -115,7 +115,7 @@ func TestSettingsTheme(t *testing.T) {
 func TestSettingsRTL(t *testing.T) {
 	t.Setenv("CLAUDE_SWITCHER_RTL", "terminal") // what auto finds in this terminal
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6", "down")
 	app, terminal := rtl.App.Line(rtlSample, rtl.DirAuto), rtl.Terminal.Line(rtlSample, rtl.DirAuto)
 	if app == terminal {
@@ -145,7 +145,7 @@ func TestSettingsRTL(t *testing.T) {
 
 func TestSettingsUpdateCheck(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6", "down", "down")
 	settle(a, press(a, "enter"))
 	if a.Settings.UpdateCheck || savedSettings(t, a)["updateCheck"] != false {
@@ -156,7 +156,7 @@ func TestSettingsUpdateCheck(t *testing.T) {
 // The last row opens the welcome again.
 func TestSettingsShowsTheWelcome(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6")
 	for range settingRows {
 		press(a, "down")
@@ -170,7 +170,7 @@ func TestSettingsShowsTheWelcome(t *testing.T) {
 // Clicking a setting (its hint and preview too) focuses it; clicking the focused one changes it.
 func TestSettingsClick(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6")
 	a.View()
 	s := a.screens[5].(*settingsScreen)
@@ -201,7 +201,7 @@ func TestSettingsUnreadableFile(t *testing.T) {
 	env, _ := fixture(t)
 	path := filepath.Join(env.Vault.Dir, "settings.json")
 	put(t, path, "{broken")
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "6")
 	settle(a, press(a, "right"))
 	if a.Settings.Theme != "nyxon-dark" || a.theme != "nyxon-dark" {

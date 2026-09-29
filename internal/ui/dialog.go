@@ -12,9 +12,9 @@ import (
 )
 
 // dialog is the one modal box: a confirmation, an alert, a text field or a choice list. Buttons
-// are in reading order and the last one is the primary. enter takes the focused button (or
-// submits the field, or picks the choice), esc cancels, y and n answer confirmations, and
-// ←/→ or tab move between buttons.
+// run left to right and the last one is the primary. enter takes the focused button (or submits
+// the field, or picks the choice), esc cancels, y and n answer confirmations, and ←/→ or tab
+// move between buttons.
 type dialog struct {
 	title, body string
 	buttons     []string
@@ -76,7 +76,6 @@ func (c *Ctx) Choose(title, body string, options []string, pick func(int) tea.Cm
 
 // update handles a key while the dialog is open. It closes the dialog itself through c.
 func (d *dialog) update(c *Ctx, msg tea.KeyPressMsg) tea.Cmd {
-	rtlOn := c.L().RTL
 	switch k := msg.String(); {
 	case k == "esc":
 		c.dialog = nil
@@ -98,10 +97,9 @@ func (d *dialog) update(c *Ctx, msg tea.KeyPressMsg) tea.Cmd {
 		return d.ok(d)
 	case k == "n" && d.ok != nil:
 		c.dialog = nil
-	// Arrows move on screen, so in Persian, where buttons are mirrored, left is the next one.
-	case k == "tab" || k == "right" && !rtlOn || k == "left" && rtlOn:
+	case k == "tab" || k == "right":
 		d.focus = min(d.focus+1, len(d.buttons)-1)
-	case k == "shift+tab" || k == "left" || k == "right":
+	case k == "shift+tab" || k == "left":
 		d.focus = max(d.focus-1, 0)
 	}
 	return nil
@@ -174,7 +172,7 @@ func (d *dialog) view(c *Ctx, width, height int) string {
 
 func (d *dialog) buttonRow(c *Ctx) string {
 	l, st := c.L(), c.St
-	var parts []string
+	labels := make([]string, len(d.buttons))
 	for i, b := range d.buttons {
 		label := " " + l.Text(b) + " "
 		switch {
@@ -185,12 +183,9 @@ func (d *dialog) buttonRow(c *Ctx) string {
 		default:
 			label = st.Badge.Render(label)
 		}
-		if i > 0 {
-			parts = append(parts, "  ")
-		}
-		parts = append(parts, label)
+		labels[i] = label
 	}
-	return l.Inline(parts...)
+	return strings.Join(labels, "  ")
 }
 
 // choiceRow is one option of a list, with the selection bar on the focused one.
@@ -198,9 +193,9 @@ func choiceRow(c *Ctx, text string, focused bool, width int) string {
 	l, st := c.L(), c.St
 	text = l.Fit(text, width-2) // options are interface text, such as list labels
 	if !focused {
-		return l.Pad(l.Inline("  ", st.Text.Render(text)), width)
+		return l.Pad("  "+st.Text.Render(text), width)
 	}
-	return l.Pad(l.Inline(st.Bar.Render(l.BarGlyph()), " ", st.Accent.Render(text)), width)
+	return l.Pad(st.Bar.Render("▌")+" "+st.Accent.Render(text), width)
 }
 
 // boxInner is the text width of a dialog or runner box in a window width cells wide: at most 52,

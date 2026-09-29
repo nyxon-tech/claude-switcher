@@ -222,13 +222,8 @@ func (a *app) transfer(move bool) *cobra.Command {
 	return cmd
 }
 
-// pointer is › at the reading start, mirrored for right-to-left.
-func (a *app) pointer() string {
-	if a.mirror {
-		return a.st.accent.Render("‹")
-	}
-	return a.st.accent.Render("›")
-}
+// pointer is the › that leads a plan or a fix.
+func (a *app) pointer() string { return a.st.accent.Render("›") }
 
 // apply shows a plan, asks, and carries it out once Desktop is closed.
 func (a *app) apply(ctx context.Context, env *ops.Env, p ops.Plan) error {

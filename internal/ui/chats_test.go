@@ -103,7 +103,7 @@ func chatsFixture(t *testing.T, width, height int) (*app, *chatsScreen, *ops.Env
 	chatTranscript(t, env, chatLostID, "Draft the pricing page", now.Add(-3*time.Hour), "Draft the pricing page with three tiers.", "Here are three tiers.")
 	chatTranscript(t, env, "9f000000-0000-4000-8000-000000000002", "Draft the pricing page", now.Add(-4*time.Hour), "Start the pricing page.", "Started.")
 
-	a := newTestApp(t, env, "en", width, height)
+	a := newTestApp(t, env, width, height)
 	s := a.screens[1].(*chatsScreen)
 	chatsRun(a, press(a, "2"))
 	if !s.loaded {

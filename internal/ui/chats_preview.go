@@ -132,7 +132,7 @@ func (s *chatsScreen) previewLines(c *Ctx, r chatRow, width, height int) []strin
 	add(st.Muted, s.whereLines(c, r, p, width)...)
 	switch {
 	case !done:
-		out = append(out, l.Pad(l.Inline(s.spinner(c), " ", st.Muted.Render(l.Fit(i18n.T("chats.preview.loading"), width-2))), width))
+		out = append(out, l.Pad(s.spinner(c)+" "+st.Muted.Render(l.Fit(i18n.T("chats.preview.loading"), width-2)), width))
 		return out
 	case p.err != nil:
 		style := st.Fail
@@ -260,7 +260,7 @@ func (s *chatsScreen) messageLines(c *Ctx, m transcript.Message, width int, full
 	}
 	head := style.Render(l.Text(who))
 	if !m.Time.IsZero() {
-		head = l.Inline(head, "  ", st.Dim.Render(l.Text(i18n.Ago(m.Time.Local(), c.Now()))))
+		head += "  " + st.Dim.Render(l.Text(i18n.Ago(m.Time.Local(), c.Now())))
 	}
 	out := []string{l.Pad(head, width)}
 	text, body := m.Text, st.Text

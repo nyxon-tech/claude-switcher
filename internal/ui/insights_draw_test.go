@@ -67,8 +67,8 @@ func TestPerDay(t *testing.T) {
 	}
 }
 
-// A bar fills from the left by its share, a share too small for a cell still gets one, and it
-// never grows past its width, in colour and in the plain theme alike.
+// A bar fills from the left by its share half a cell at a time, a share too small for half a cell
+// still gets one, and it never grows past its width, in colour and in the plain theme alike.
 func TestMeter(t *testing.T) {
 	for _, theme := range []string{"dark", "plain"} {
 		st := newStyles(theme, true)
@@ -77,8 +77,9 @@ func TestMeter(t *testing.T) {
 			width int
 			want  string
 		}{
-			{0, 4, "░░░░"}, {0.001, 4, "█░░░"}, {0.25, 12, "███░░░░░░░░░"}, {1, 4, "████"},
-			{1.5, 4, "████"}, {-1, 4, "░░░░"}, {0.5, 0, ""}, {0.5, 1, "█"},
+			{0, 4, "────"}, {0.001, 4, "╸───"}, {0.25, 12, "━━━─────────"}, {1, 4, "━━━━"},
+			{1.5, 4, "━━━━"}, {-1, 4, "────"}, {0.5, 0, ""}, {0.5, 1, "╸"},
+			{0.3, 4, "━───"}, {0.4, 4, "━╸──"},
 		} {
 			if got := ansi.Strip(meter(st, tc.frac, tc.width)); got != tc.want {
 				t.Errorf("%s: meter(%v, %d) = %q, want %q", theme, tc.frac, tc.width, got, tc.want)

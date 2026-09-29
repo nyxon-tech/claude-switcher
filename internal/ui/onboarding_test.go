@@ -30,22 +30,21 @@ func firstRun(t *testing.T, unsaved bool) (*ops.Env, *fakeDesktop) {
 	return env, desk
 }
 
-// welcomed is the app showing the welcome's greeting, faded in.
+// welcomed is the app showing the welcome's first step, the brand.
 func welcomed(t *testing.T, env *ops.Env, width, height int) *app {
 	t.Helper()
-	a := newTestApp(t, env, "en", width, height)
+	a := newTestApp(t, env, width, height)
 	a.Welcome()
-	a.onboard.fade = fadeSteps
 	return a
 }
 
 func TestOnboardingFrames(t *testing.T) {
-	for _, size := range [][2]int{{80, 24}, {120, 40}} {
+	for _, size := range [][2]int{{60, 18}, {80, 24}, {120, 40}} {
 		for _, step := range []string{"hello", "save"} {
 			t.Run(fmt.Sprintf("en_%dx%d_%s", size[0], size[1], step), func(t *testing.T) {
 				env, _ := firstRun(t, true)
 				a := welcomed(t, env, size[0], size[1])
-				want := []string{i18n.T("welcome.title"), i18n.T("app.tagline"), i18n.T("welcome.key.skip")}
+				want := []string{"C L A U D E   S W I T C H E R", i18n.T("app.by") + " nyxon", i18n.T("app.tagline"), i18n.T("welcome.key.skip")}
 				if step == "save" {
 					press(a, "enter")
 					want = []string{i18n.T("welcome.save.title"), "work", i18n.T("welcome.key.later")}
@@ -80,18 +79,15 @@ func TestSmallestWindowFits(t *testing.T) {
 	}
 }
 
-// The first run: the greeting fades in, enter asks for a name for the signed-in account, and
-// saving it (the way Accounts saves) ends the welcome on Accounts, remembered as seen.
+// The first run: the brand, then enter asks for a name for the signed-in account, and saving it
+// (the way Accounts saves) ends the welcome on Accounts, remembered as seen.
 func TestOnboardingFlow(t *testing.T) {
 	env, _ := firstRun(t, true)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	settle(a, a.Init())
 	o := a.onboard
-	if o == nil || o.fade == 0 {
-		t.Fatalf("the first run should open the welcome and fade the greeting in; %+v", o)
-	}
-	for o.fade < fadeSteps { // a slow machine may still be fading
-		a.Update(fadeMsg{})
+	if o == nil {
+		t.Fatal("the first run should open the welcome")
 	}
 	press(a, "enter")
 	if !o.saving || o.input.Value() != "work" {
@@ -158,11 +154,9 @@ func TestOnboardingSkips(t *testing.T) {
 // Enter before the state was read waits for it, and says so.
 func TestOnboardingWaitsForTheState(t *testing.T) {
 	env, _ := firstRun(t, true)
-	i18n.Load("en")
 	a := newApp(env, Options{Version: "3.0.0", Mode: rtl.App, Theme: "dark"})
 	a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a.Welcome()
-	a.onboard.fade = fadeSteps
 	press(a, "enter")
 	if o := a.onboard; !o.waiting || o.saving {
 		t.Fatal("enter should wait for the state")
@@ -173,34 +167,5 @@ func TestOnboardingWaitsForTheState(t *testing.T) {
 	a.Update(a.Refresh()())
 	if o := a.onboard; o.waiting || !o.saving {
 		t.Error("the state should move the welcome on to naming the account")
-	}
-}
-
-// The greeting fades in from the background; any key ends the fade and does nothing else, and
-// without colours there is no fade.
-func TestOnboardingFade(t *testing.T) {
-	env, _ := firstRun(t, true)
-	a := newTestApp(t, env, "en", 100, 30)
-	if a.Welcome() == nil {
-		t.Fatal("the greeting should start fading in")
-	}
-	o, st := a.onboard, a.St
-	title := func() string { return sgr(o.faded(st, st.Title).GetForeground()) }
-	if title() == sgr(st.pal.text) {
-		t.Error("the title should start faded")
-	}
-	a.Update(fadeMsg{})
-	press(a, "enter")
-	if o.fade != fadeSteps || o.saving || a.onboard != o {
-		t.Fatalf("a key during the fade should only end it; fade %d, naming %v", o.fade, o.saving)
-	}
-	if title() != sgr(st.pal.text) {
-		t.Error("the title should end in the text colour")
-	}
-
-	t.Setenv("NO_COLOR", "1")
-	b := newTestApp(t, env, "en", 100, 30)
-	if b.Welcome() != nil || b.onboard.fade != fadeSteps {
-		t.Error("without colours the greeting should show at once, with no ticks")
 	}
 }

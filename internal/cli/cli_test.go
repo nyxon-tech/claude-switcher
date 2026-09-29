@@ -1,14 +1,20 @@
 package cli
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/nyxon-tech/claude-switcher/v3/internal/i18n"
+	"github.com/nyxon-tech/claude-switcher/v3/internal/rtl"
 )
 
 func TestProfiles(t *testing.T) {
@@ -279,35 +285,33 @@ func TestUsage(t *testing.T) {
 func TestConfig(t *testing.T) {
 	f := newFixture(t)
 	v := decode[map[string]any](t, f.ok("config", "--json"))
-	want := map[string]any{"lang": "auto", "theme": "auto", "rtl": "auto", "persianDigits": true, "jalali": true, "updateCheck": true}
-	if len(v) != len(want) || v["lang"] != "auto" || v["updateCheck"] != true {
+	want := map[string]any{"theme": "auto", "rtl": "auto", "updateCheck": true}
+	if !maps.Equal(v, want) {
 		t.Fatalf("config = %v, want %v", v, want)
 	}
-	f.ok("config", "set", "lang", "fa")
 	f.ok("config", "set", "theme", "light")
+	f.ok("config", "set", "rtl", "terminal")
 	f.ok("config", "set", "update-check", "off")
-	if r := f.ok("config", "get", "lang"); r.out != "fa\n" {
-		t.Errorf("config get lang = %q", r.out)
+	if r := f.ok("config", "get", "rtl"); r.out != "terminal\n" {
+		t.Errorf("config get rtl = %q", r.out)
 	}
 	s := f.read(filepath.Join(f.vault, "settings.json"))
 	if !strings.Contains(s, `"theme":"nyxon-light"`) && !strings.Contains(s, `"theme": "nyxon-light"`) {
 		t.Errorf("settings.json keeps the long theme name: %s", s)
 	}
-	if r := f.ok("config", "list"); !regexp.MustCompile(`[آ-ی]`).MatchString(r.out) {
-		t.Errorf("a saved language applies to the next run:\n%s", r.out)
-	}
-	f.ok("config", "set", "lang", "auto")
 	f.want(f.run("config", "set", "theme", "neon"), exitUsage, "config set theme neon")
 	f.want(f.run("config", "get", "colour"), exitUsage, "config get colour")
 
 	broken := filepath.Join(f.vault, "settings.json")
-	f.put(broken, `{"lang": "fa",`)
-	f.want(f.run("config", "set", "jalali", "off"), exitError, "config set over a broken settings file")
-	if f.read(broken) != `{"lang": "fa",` {
+	f.put(broken, `{"theme": "plain",`)
+	f.want(f.run("config", "set", "update-check", "on"), exitError, "config set over a broken settings file")
+	if f.read(broken) != `{"theme": "plain",` {
 		t.Error("a settings file that cannot be read must not be replaced by the defaults")
 	}
 }
 
+// version starts with the brand, then the build, labels muted and values lined up. It is the
+// same in a terminal of any width.
 func TestVersion(t *testing.T) {
 	f := newFixture(t)
 	if r := f.ok("version", "--short"); r.out != "3.0.0\n" {
@@ -317,28 +321,47 @@ func TestVersion(t *testing.T) {
 	if got := keys(v); !slices.Equal(got, []string{"arch", "commit", "date", "go", "install", "os", "version"}) || v["commit"] != "abc1234" {
 		t.Errorf("version --json = %v", v)
 	}
-	if r := f.ok("version"); !strings.Contains(r.out, "Claude Switcher 3.0.0") || !strings.Contains(r.out, "abc1234") {
-		t.Errorf("version:\n%s", r.out)
+	built := i18n.Date(time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC).Local())
+	installed := i18n.T("cli.install." + (&app{build: Build{Version: "3.0.0"}}).installMethod())
+	want := []string{"✦ Claude Switcher 3.0.0  by nyxon", "  commit     abc1234", "  built      " + built,
+		"  platform   " + runtime.GOOS + "/" + runtime.GOARCH, "  installed  " + installed}
+	for _, r := range []result{f.ok("version"), f.term(rtl.App, 60, "version"), f.term(rtl.App, 120, "version")} {
+		if got := strings.Split(strings.TrimRight(ansi.Strip(r.out), "\n"), "\n"); !slices.Equal(got, want) {
+			t.Errorf("version =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
 	}
 }
 
-func TestPersian(t *testing.T) {
+// Persian titles print right: joined and in visual order in a terminal that leaves that to us
+// (rtl.App), as typed in one that does it itself and when piped, and always as logical UTF-8 in
+// --json, whatever the terminal.
+func TestPersianTitles(t *testing.T) {
 	f := chatFixture(t)
-	for _, args := range [][]string{{"list"}, {"chats", "--limit", "2"}, {"doctor"}, {"usage"}} {
-		r := f.ok(append(args, "--lang", "fa")...)
-		if !utf8.ValidString(r.out) || !strings.ContainsAny(r.out, "۰۱۲۳۴۵۶۷۸۹") || !regexp.MustCompile(`[آ-ی]`).MatchString(r.out) {
-			t.Errorf("%v --lang fa should be Persian with Persian digits:\n%s", args, r.out)
+	visual := rtl.Visual(persianTitle, rtl.DirAuto)
+	for _, tc := range []struct {
+		name string
+		r    result
+		want string
+	}{
+		{"app", f.term(rtl.App, 100, "chats"), visual},
+		{"terminal", f.term(rtl.Terminal, 100, "chats"), persianTitle},
+		{"piped", f.ok("chats"), persianTitle},
+	} {
+		if !strings.Contains(tc.r.out, tc.want) || tc.want != visual && strings.Contains(tc.r.out, visual) {
+			t.Errorf("%s: the title should read %q:\n%s", tc.name, tc.want, tc.r.out)
 		}
 	}
-	r := f.run("switch", "nobody", "--lang", "fa")
-	if !strings.Contains(r.err, "«nobody»") || r.code != exitNotFound {
-		t.Errorf("errors are Persian too:\n%s", r.err)
+	for _, r := range []result{f.term(rtl.App, 100, "chats", "--json"), f.ok("chats", "--json")} {
+		chats := decode[[]map[string]any](t, r)
+		if !utf8.ValidString(r.out) || chats[0]["title"] != persianTitle {
+			t.Errorf("--json should keep the title as typed: %v", chats[0]["title"])
+		}
 	}
 }
 
 func TestUsageErrors(t *testing.T) {
 	f := newFixture(t)
-	for _, args := range [][]string{{"nonsense"}, {"chats", "a", "b"}, {"list", "--lang", "xx"}, {"list", "--nope"}, {"switch"}} {
+	for _, args := range [][]string{{"nonsense"}, {"chats", "a", "b"}, {"list", "--theme", "xx"}, {"list", "--nope"}, {"switch"}} {
 		r := f.run(args...)
 		f.want(r, exitUsage, args...)
 		if !strings.HasPrefix(r.err, "✗ ") || !strings.Contains(r.err, "--help") {

@@ -29,22 +29,12 @@ func toggle(key, json string, field func(*store.Settings) *bool) setting {
 }
 
 var settings = []setting{
-	{"lang", "lang", []string{"auto", "en", "fa"},
-		func(s store.Settings) string { return cmp.Or(s.Lang, "auto") },
-		func(s *store.Settings, v string) {
-			if v == "auto" {
-				v = "" // follow the system
-			}
-			s.Lang = v
-		}},
 	{"theme", "theme", themeNames,
 		func(s store.Settings) string { return shortTheme(s.Theme) },
 		func(s *store.Settings, v string) { s.Theme = longTheme(v) }},
 	{"rtl", "rtl", []string{"auto", "app", "terminal", "off"},
 		func(s store.Settings) string { return cmp.Or(s.RTL, "auto") },
 		func(s *store.Settings, v string) { s.RTL = v }},
-	toggle("persian-digits", "persianDigits", func(s *store.Settings) *bool { return &s.PersianDigits }),
-	toggle("jalali", "jalali", func(s *store.Settings) *bool { return &s.Jalali }),
 	toggle("update-check", "updateCheck", func(s *store.Settings) *bool { return &s.UpdateCheck }),
 }
 

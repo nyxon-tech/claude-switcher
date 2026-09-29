@@ -36,7 +36,7 @@ func (a *app) usage(ctx context.Context, days int) error {
 	var stats transcript.Stats
 	err = a.spin(ctx, func() string {
 		if t := total.Load(); t > 0 {
-			return i18n.T("cli.usage.reading", "n", t, "pct", i18n.Digits(fmt.Sprintf("%d%%", done.Load()*100/t)))
+			return i18n.T("cli.usage.reading", "n", t, "pct", fmt.Sprintf("%d%%", done.Load()*100/t))
 		}
 		return i18n.T("state.loading")
 	}, func(ctx context.Context) error {
@@ -111,26 +111,22 @@ func (a *app) shares(header string, m map[string]transcript.Usage, all int64, na
 	rows := make([][]string, len(keys))
 	for i, k := range keys {
 		share := float64(m[k].Total()) / float64(max(all, 1))
-		rows[i] = []string{"", a.txt(i18n.Compact(m[k].Total())), a.txt(i18n.Digits(fmt.Sprintf("%.1f%%", share*100))), a.bar(share, bar)}
+		rows[i] = []string{"", a.txt(i18n.Compact(m[k].Total())), a.txt(fmt.Sprintf("%.1f%%", share*100)), a.bar(share, bar)}
 	}
 	headers := []string{header, i18n.T("cli.usage.tokens"), i18n.T("cli.usage.share"), ""}
 	a.fitColumn(headers, rows, 0, func(i, width int) string { return name(keys[i], width) })
 	return a.table(headers, rows, 1, 2)
 }
 
-// bar fills width cells by share, from the reading-start edge.
+// bar fills width cells by share, from the left.
 func (a *app) bar(share float64, width int) string {
 	n := int(share*float64(width) + 0.5)
-	full, empty := a.st.accent.Render(strings.Repeat("█", n)), a.st.border.Render(strings.Repeat("░", width-n))
-	if a.mirror {
-		return empty + full
-	}
-	return full + empty
+	return a.st.accent.Render(strings.Repeat("█", n)) + a.st.border.Render(strings.Repeat("░", width-n))
 }
 
-// daily is a column chart of output tokens over the last days, oldest at the reading start,
-// with the first and last dates under it. A window narrower than the days gets a column for
-// every few days.
+// daily is a column chart of output tokens over the last days, oldest at the left, with the
+// first and last dates under it. A window narrower than the days gets a column for every few
+// days.
 func (a *app) daily(byDay map[string]transcript.Usage, days int) string {
 	levels := []rune("▁▂▃▄▅▆▇█")
 	today := time.Now()
@@ -147,10 +143,6 @@ func (a *app) daily(byDay map[string]transcript.Usage, days int) string {
 		}
 	}
 	first, last := a.txt(i18n.Date(today.AddDate(0, 0, 1-days))), a.txt(i18n.Date(today))
-	if a.mirror {
-		slices.Reverse(cells)
-		first, last = last, first
-	}
 	chart := strings.Join(cells, "")
 	gap := len(cells) - lipgloss.Width(first) - lipgloss.Width(last)
 	if gap < 1 {

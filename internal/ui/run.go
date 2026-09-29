@@ -5,8 +5,7 @@ import (
 	"github.com/nyxon-tech/claude-switcher/v3/internal/rtl"
 )
 
-// Options configure the full-screen app. The CLI fills them from flags and saved settings,
-// and has already loaded the language (i18n.Load) before Run.
+// Options configure the full-screen app. The CLI fills them from flags and saved settings.
 type Options struct {
 	Version  string   // "3.0.0", shown in the footer
 	Mode     rtl.Mode // App, Terminal or Off, already resolved from Auto

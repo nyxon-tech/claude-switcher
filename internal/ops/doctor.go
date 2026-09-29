@@ -20,7 +20,7 @@ const (
 	Fail Level = "fail"
 )
 
-// Check is one line of the doctor's report, in the current language.
+// Check is one line of the doctor's report.
 type Check struct {
 	Level  Level
 	Title  string

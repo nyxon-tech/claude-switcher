@@ -107,6 +107,8 @@ winget:
         base: { owner: microsoft, name: winget-pkgs, branch: master }
 
 release:
+  # Tags like v3.0.0-rc.1 become pre-releases, which releases/latest (and so the installers) skip
+  prerelease: auto
   extra_files:
     - glob: ./install.sh
     - glob: ./install.ps1

@@ -374,7 +374,7 @@ func TestChatsEmpty(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(env.Install.DataDir, "claude-code-sessions")); err != nil {
 		t.Fatal(err)
 	}
-	a := newTestApp(t, env, "en", 80, 24)
+	a := newTestApp(t, env, 80, 24)
 	chatsRun(a, press(a, "2"))
 	checkFrame(t, a)
 	if text := strings.Join(screen(a), "\n"); !strings.Contains(text, i18n.T("chats.empty.title")) {

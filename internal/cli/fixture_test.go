@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nyxon-tech/claude-switcher/v3/internal/i18n"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/ops"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/platform"
 	"github.com/nyxon-tech/claude-switcher/v3/internal/rtl"
@@ -43,7 +42,6 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) *fixture {
-	t.Setenv("CLAUDE_SWITCHER_LANG", "en")
 	t.Setenv("CLAUDE_SWITCHER_NO_UPDATE_CHECK", "1")
 	root := t.TempDir()
 	return &fixture{t: t, data: filepath.Join(root, "Claude"), vault: filepath.Join(root, "vault"), projects: filepath.Join(root, "claude", "projects")}
@@ -63,14 +61,14 @@ func (f *fixture) run(args ...string) result {
 	return result{out.String(), errOut.String(), code}
 }
 
-// term runs a command as if stdout were a terminal width cells wide that leaves Persian to the
-// app (rtl.App), as Windows Terminal does.
-func (f *fixture) term(width int, args ...string) result {
+// term runs a command as if stdout were a terminal width cells wide that lays out right-to-left
+// text in mode: rtl.App for one that leaves it to the app, as Windows Terminal does.
+func (f *fixture) term(mode rtl.Mode, width int, args ...string) result {
 	f.t.Helper()
 	var out, errOut bytes.Buffer
 	args = append(args, "--data-dir", f.data, "--vault-dir", f.vault, "--projects-dir", f.projects)
 	a := newApp(Build{Version: "3.0.0", Commit: "abc1234", Date: "2026-09-29T10:00:00Z"}, args, strings.NewReader(""), &out, &errOut)
-	a.tty, a.mode, a.width, a.mirror = true, rtl.App, width, i18n.RTL()
+	a.tty, a.mode, a.width = true, mode, width
 	code := a.execute(context.Background(), args)
 	return result{out.String(), errOut.String(), code}
 }

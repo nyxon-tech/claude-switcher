@@ -13,7 +13,7 @@ import (
 	"github.com/nyxon-tech/claude-switcher/v3/internal/store"
 )
 
-// accountsScreen is home: the logo, then a card per saved account and a ghost card that adds one.
+// accountsScreen is home: the brand, then a card per saved account and a ghost card that adds one.
 type accountsScreen struct {
 	focus  int    // card index; len(profiles) is the add card
 	placed bool   // focus has started on the profile in use
@@ -101,7 +101,7 @@ func (s *accountsScreen) Update(c *Ctx, msg tea.Msg) tea.Cmd {
 			return s.key(c, msg.String())
 		}
 	case tea.MouseClickMsg:
-		if i, ok := s.geo.hit(c.L(), msg.X, msg.Y); ok {
+		if i, ok := s.geo.hit(msg.X, msg.Y); ok {
 			if i == s.focus {
 				return s.activate(c)
 			}
@@ -127,16 +127,11 @@ func (s *accountsScreen) key(c *Ctx, k string) tea.Cmd {
 		return nil
 	}
 	n, cols := len(ps)+1, max(s.geo.cols, 1)
-	// Arrows move on screen: in Persian the cards are mirrored, so left is the next one.
-	side := 1
-	if c.L().RTL {
-		side = -1
-	}
 	switch k {
 	case "left", "h":
-		s.focus = min(max(s.focus-side, 0), n-1)
+		s.focus = max(s.focus-1, 0)
 	case "right", "l":
-		s.focus = min(max(s.focus+side, 0), n-1)
+		s.focus = min(s.focus+1, n-1)
 	case "up", "k":
 		if s.focus >= cols {
 			s.focus -= cols
@@ -395,9 +390,6 @@ func (s *accountsScreen) View(c *Ctx, width, height int) string {
 				cells = append(cells, addCard(c, i == s.focus, g.cardW))
 			}
 		}
-		if l.RTL {
-			slices.Reverse(cells)
-		}
 		row := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 		for _, line := range strings.Split(row, "\n") {
 			lines = append(lines, l.Center(l.Pad(line, gridW), width))
@@ -406,21 +398,15 @@ func (s *accountsScreen) View(c *Ctx, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-// heading is the logo (when it fits) and the tagline, in at most height lines.
+// heading is the hero, or only the tagline when the hero does not fit, and two blank lines, in
+// at most height lines.
 func heading(c *Ctx, width, height int) []string {
 	l, st := c.L(), c.St
-	tagline := []string{l.Center(st.Muted.Render(l.Fit(i18n.T("app.tagline"), width)), width), "", ""}
-	for _, logo := range st.logos(c.Width, c.Height) {
-		var lines []string
-		for _, line := range strings.Split(logo, "\n") {
-			lines = append(lines, l.Center(line, width))
-		}
-		if lines = append(append(lines, ""), tagline...); len(lines) <= height {
+	tagline := l.Center(st.Muted.Render(l.Fit(i18n.T("app.tagline"), width)), width)
+	for _, head := range [][]string{st.hero(l, width), {tagline}} {
+		if lines := append(head, "", ""); len(lines) <= height {
 			return lines
 		}
-	}
-	if len(tagline) <= height {
-		return tagline
 	}
 	return nil
 }
@@ -433,9 +419,8 @@ func newGrid(width, n int) grid {
 
 func gridHeight(rows int) int { return rows*(cardH+gapY) - gapY }
 
-// hit finds the card under a body cell. In Persian the rows are mirrored and the last, shorter
-// row keeps to the right edge.
-func (g grid) hit(l Layout, x, y int) (int, bool) {
+// hit finds the card under a body cell.
+func (g grid) hit(x, y int) (int, bool) {
 	x, y = x-g.x, y-g.y
 	if g.cols == 0 || x < 0 || y < 0 || x%(g.cardW+gapX) >= g.cardW || y%(cardH+gapY) >= cardH {
 		return 0, false
@@ -443,9 +428,6 @@ func (g grid) hit(l Layout, x, y int) (int, bool) {
 	col, row := x/(g.cardW+gapX), y/(cardH+gapY)
 	if col >= g.cols || row >= g.rows {
 		return 0, false
-	}
-	if l.RTL {
-		col = g.cols - 1 - col
 	}
 	i := (g.top+row)*g.cols + col
 	return i, i < g.n
@@ -479,7 +461,7 @@ func profileCard(c *Ctx, p ops.Profile, focused bool, width int) string {
 		saved = st.Muted.Render(l.Fit(i18n.T("ui.accounts.saved", "ago", i18n.Ago(p.Saved.Local(), c.Now())), inner))
 	}
 	body := strings.Join([]string{
-		l.Row(l.Inline(dot, " ", name), badge, inner),
+		l.Row(dot+" "+name, badge, inner),
 		l.Row(chats, id, inner),
 		l.Pad(saved, inner),
 	}, "\n")
@@ -494,7 +476,7 @@ func addCard(c *Ctx, focused bool, width int) string {
 	if focused {
 		text = st.Accent
 	}
-	label := l.Inline(st.Accent.Render("+"), " ", text.Render(l.Fit(i18n.T("ui.accounts.add"), inner-2)))
+	label := st.Accent.Render("+") + " " + text.Render(l.Fit(i18n.T("ui.accounts.add"), inner-2))
 	blank := strings.Repeat(" ", inner)
 	return st.Ghost(focused).Padding(0, 1).Render(strings.Join([]string{blank, l.Center(label, inner), blank}, "\n"))
 }
@@ -515,7 +497,7 @@ func (s *accountsScreen) empty(c *Ctx, width, height int) string {
 		add(st.Muted, i18n.T("ui.accounts.empty.signed_out"))
 	} else {
 		add(st.Muted, i18n.T("ui.accounts.empty.body"))
-		body = append(body, "", l.Center(l.Inline(st.Badge.Render(" s "), "  ", st.Text.Render(l.Fit(i18n.T("ui.accounts.empty.action"), textW-5))), width))
+		body = append(body, "", l.Center(st.Badge.Render(" s ")+"  "+st.Text.Render(l.Fit(i18n.T("ui.accounts.empty.action"), textW-5)), width))
 	}
 	lines := append(heading(c, width, height-len(body)), body...)
 	return strings.Repeat("\n", max(0, (height-len(lines))/2)) + strings.Join(lines, "\n")

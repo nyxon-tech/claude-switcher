@@ -65,7 +65,7 @@ func (a *app) execute(ctx context.Context, args []string) int {
 // globals are the flags every command takes.
 type globals struct {
 	json, yes, noLaunch, forceQuit bool
-	lang, rtl, theme               string
+	rtl, theme                     string
 	dataDir, vaultDir, projectsDir string
 }
 
@@ -73,7 +73,6 @@ func (g *globals) register(fs *pflag.FlagSet, usage func(key string) string) {
 	fs.BoolVar(&g.json, "json", false, usage("cli.flag.json"))
 	fs.BoolVarP(&g.yes, "yes", "y", false, usage("cli.flag.yes"))
 	fs.BoolVar(&g.noLaunch, "no-launch", false, usage("cli.flag.no-launch"))
-	fs.StringVar(&g.lang, "lang", "", usage("cli.flag.lang"))
 	fs.StringVar(&g.rtl, "rtl", "", usage("cli.flag.rtl"))
 	fs.StringVar(&g.theme, "theme", "", usage("cli.flag.theme"))
 	for name, p := range map[string]*string{"data-dir": &g.dataDir, "vault-dir": &g.vaultDir, "projects-dir": &g.projectsDir} {
@@ -91,7 +90,6 @@ type app struct {
 	out, err           io.Writer // text, with colour only where the terminal shows it
 	tty, ttyIn, ttyErr bool
 	mode               rtl.Mode
-	mirror             bool // Persian laid out by us: lines read right to left
 	width              int
 	st                 styles
 	vault              store.Vault
@@ -101,7 +99,8 @@ type app struct {
 	newer              chan string // the update check started for this command
 }
 
-// newApp reads the global flags ahead of Cobra, because the language decides every help text.
+// newApp reads the global flags ahead of Cobra, because the settings they point at, the rtl
+// mode and the theme shape every help text.
 func newApp(b Build, args []string, stdin io.Reader, stdout, stderr io.Writer) *app {
 	a := &app{build: b, in: stdin, stdout: stdout, stderr: stderr,
 		out: colorprofile.NewWriter(stdout, os.Environ()), err: colorprofile.NewWriter(stderr, os.Environ()),
@@ -115,9 +114,6 @@ func newApp(b Build, args []string, stdin io.Reader, stdout, stderr io.Writer) *
 
 	a.vault = store.Vault{Dir: cmp.Or(a.flags.vaultDir, platform.VaultDir())}
 	a.settings, _ = a.vault.Settings() // a broken settings file reads as the defaults
-	i18n.Load(cmp.Or(a.flags.lang, a.settings.Lang, i18n.Detect()))
-	i18n.SetPersianDigits(a.settings.PersianDigits)
-	i18n.SetJalali(a.settings.Jalali)
 
 	a.mode = rtl.Off
 	if a.tty {
@@ -129,7 +125,6 @@ func newApp(b Build, args []string, stdin io.Reader, stdout, stderr io.Writer) *
 			a.width = min(w, maxWidth)
 		}
 	}
-	a.mirror = i18n.RTL() && a.mode == rtl.App
 	a.st = newStyles(ui.ThemePalette(a.theme(), a.darkBackground()))
 	return a
 }
@@ -142,7 +137,7 @@ func isTerminal(v any) bool {
 	return ok && term.IsTerminal(f.Fd())
 }
 
-// root builds the command tree in the loaded language.
+// root builds the command tree.
 func (a *app) root() *cobra.Command {
 	cobra.EnableCommandSorting = false
 	root := &cobra.Command{
@@ -168,8 +163,8 @@ func (a *app) root() *cobra.Command {
 	return root
 }
 
-// localizeBuiltins translates what Cobra adds by itself: the help and completion commands and
-// the --help and --version flags.
+// localizeBuiltins gives what Cobra adds by itself the catalog's words, like every other help
+// text: the help and completion commands and the --help and --version flags.
 func (a *app) localizeBuiltins(root *cobra.Command) {
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
@@ -231,7 +226,6 @@ func (a *app) prepare(cmd *cobra.Command, _ []string) error {
 		name, value string
 		allowed     []string
 	}{
-		{"lang", a.flags.lang, []string{"en", "fa"}},
 		{"rtl", a.flags.rtl, []string{"auto", "app", "terminal", "off"}},
 		{"theme", a.flags.theme, themeNames},
 	} {

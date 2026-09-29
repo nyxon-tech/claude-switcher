@@ -88,7 +88,7 @@ type Styles struct {
 	Badge                    lipgloss.Style // small label on the accent, such as ACTIVE
 	DangerBadge              lipgloss.Style // the focused button of a destructive choice
 	TabOn, TabOff            lipgloss.Style
-	Bar                      lipgloss.Style // the selection bar at the reading-start edge of a row
+	Bar                      lipgloss.Style // the selection bar at the left edge of a row
 	Divider                  lipgloss.Style // lines in the line colour
 	Plain                    bool           // no colours: mark focus with bold, reverse and glyphs
 

@@ -167,7 +167,8 @@ func (s *settingsScreen) key(c *Ctx, k string) tea.Cmd {
 func (s *settingsScreen) change(c *Ctx, step int) tea.Cmd {
 	f := settingRows[s.focus]
 	if f.values == nil {
-		return c.Welcome()
+		c.Welcome()
+		return nil
 	}
 	set := c.Settings
 	n := len(f.values)
@@ -219,11 +220,11 @@ func (s *settingsScreen) lines(c *Ctx, blockW, labelW, gap int) []string {
 		}
 		block := []string{
 			settingRow(c, f, i == s.focus, labelW, blockW-labelW-5),
-			l.Inline("  ", st.Dim.Render(l.Fit(i18n.T("settings."+f.key+".hint"), blockW-2))),
+			"  " + st.Dim.Render(l.Fit(i18n.T("settings."+f.key+".hint"), blockW-2)),
 		}
 		if f.key == "rtl" {
 			for _, line := range preview(c, blockW-2) {
-				block = append(block, l.Inline("  ", line))
+				block = append(block, "  "+line)
 			}
 		}
 		for range block {
@@ -240,11 +241,11 @@ func settingRow(c *Ctx, f setting, focused bool, labelW, valueW int) string {
 	l, st := c.L(), c.St
 	bar, label, value := " ", st.Text, st.Muted
 	if focused {
-		bar, label, value = st.Bar.Render(l.BarGlyph()), st.Bold, st.Accent
+		bar, label, value = st.Bar.Render("▌"), st.Bold, st.Accent
 	}
 	if f.values == nil {
 		text := label.Render(l.Fit(i18n.T("settings."+f.key), labelW+valueW))
-		return l.Inline(bar, " ", text, " ", value.Render(l.Pointer()))
+		return bar + " " + text + " " + value.Render("›")
 	}
 	v := f.get(c.Settings)
 	name := v // a value this version does not know shows as it is
@@ -257,14 +258,14 @@ func settingRow(c *Ctx, f setting, focused bool, labelW, valueW int) string {
 		if v == "on" {
 			dot = st.Accent.Render("●")
 		}
-		shown = l.Inline(dot, " ", shown)
+		shown = dot + " " + shown
 	}
 	if focused {
 		shown = st.Muted.Render("‹ ") + shown + st.Muted.Render(" ›")
 	} else {
 		shown = "  " + shown + "  "
 	}
-	return l.Inline(bar, " ", l.Pad(label.Render(l.Fit(i18n.T("settings."+f.key), labelW)), labelW), "   ", shown)
+	return bar + " " + l.Pad(label.Render(l.Fit(i18n.T("settings."+f.key), labelW)), labelW) + "   " + shown
 }
 
 // preview is the sample chat title in a box, drawn the way the rtl setting draws chat titles.

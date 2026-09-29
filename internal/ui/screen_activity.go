@@ -239,7 +239,7 @@ func (s *activityScreen) details(c *Ctx, width, height int) string {
 		names = append(names, folder(e.Path))
 	}
 	at := j.At.Local()
-	when := i18n.Date(at) + " · " + i18n.Digits(at.Format("15:04"))
+	when := i18n.Date(at) + " · " + at.Format("15:04")
 	if ago := i18n.Ago(at, c.Now()); ago != i18n.Date(at) {
 		when += " · " + ago
 	}

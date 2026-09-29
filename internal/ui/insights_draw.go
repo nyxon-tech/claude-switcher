@@ -105,23 +105,26 @@ func wrap(l Layout, s string, width int) []string {
 	return l.Wrap(strings.Join(words, " "), width)
 }
 
-// meter is a bar width cells wide, filled by frac in the brand gradient (accent to text) on a
-// track in the line colour. A share too small for a cell of its own still gets one.
+// meter is a bar width cells wide: a heavy line filled by frac half a cell at a time, in the
+// brand gradient (accent to text), on a thin track in the line colour. Unlike full blocks, the
+// bars of rows one under another stay apart. A share too small for half a cell still gets one.
 func meter(st Styles, frac float64, width int) string {
 	width = max(width, 0)
-	n := min(max(int(frac*float64(width)+0.5), 0), width)
+	halves := min(max(int(frac*float64(2*width)+0.5), 0), 2*width)
 	if frac > 0 && width > 0 {
-		n = max(n, 1)
+		halves = max(halves, 1)
 	}
-	fill := strings.Repeat("█", n)
-	if !st.Plain { // the plain theme has no colours to blend
+	full, half := halves/2, halves%2
+	fill := strings.Repeat("━", full) + strings.Repeat("╸", half)
+	if !st.Plain && fill != "" { // the plain theme has no colours to blend
 		var b strings.Builder
-		for _, col := range lipgloss.Blend1D(width, st.pal.accent, st.pal.text)[:n] {
-			b.WriteString(lipgloss.NewStyle().Foreground(col).Render("█"))
+		cols := lipgloss.Blend1D(width, st.pal.accent, st.pal.text)
+		for i, r := range []rune(fill) {
+			b.WriteString(lipgloss.NewStyle().Foreground(cols[i]).Render(string(r)))
 		}
 		fill = b.String()
 	}
-	return fill + st.Divider.Render(strings.Repeat("░", width-n))
+	return fill + st.Divider.Render(strings.Repeat("─", width-full-half))
 }
 
 // columnGlyphs draw a column an eighth of a cell at a time.

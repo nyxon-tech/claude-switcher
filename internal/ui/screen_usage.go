@@ -120,7 +120,7 @@ func (s *usageScreen) reading(c *Ctx, width, height int) string {
 	label, frac := i18n.T("insights.usage.finding"), 0.0
 	if s.total > 0 {
 		frac = float64(s.done) / float64(s.total)
-		label = i18n.T("insights.usage.reading", "n", s.total, "pct", i18n.Digits(fmt.Sprintf("%d%%", s.done*100/s.total)))
+		label = i18n.T("insights.usage.reading", "n", s.total, "pct", fmt.Sprintf("%d%%", s.done*100/s.total))
 	}
 	lines := []string{
 		l.Center(st.Text.Render(l.Fit(label, width-4)), width),
@@ -238,23 +238,26 @@ func shares(m map[string]transcript.Usage, n int, name func(string) string) []sh
 	return out
 }
 
-// shareRows draws a bar per entry: its name (user data: a model or a project folder), its share
-// of all as a bar, then its tokens and the share in per cent, right-aligned in their columns.
+// shareRows draws a bar per entry: its name (user data: a model or a project folder), a bar
+// against the biggest entry, then its tokens and its share of all in per cent, right-aligned in
+// their columns.
 func shareRows(c *Ctx, items []share, all int64, width int) []string {
 	l, st := c.L(), c.St
 	names, nums, pcts := make([]string, len(items)), make([]string, len(items)), make([]string, len(items))
 	nameW, numW, pctW := 0, 0, 0
+	top := int64(1)
 	for i, it := range items {
+		top = max(top, it.tokens)
 		names[i] = l.Data(it.name, max(8, width/3))
 		nums[i] = l.Text(i18n.Compact(it.tokens))
-		pcts[i] = l.Text(i18n.Digits(fmt.Sprintf("%.1f%%", float64(it.tokens)*100/float64(max(all, 1)))))
+		pcts[i] = l.Text(fmt.Sprintf("%.1f%%", float64(it.tokens)*100/float64(max(all, 1))))
 		nameW, numW, pctW = max(nameW, ansi.StringWidth(names[i])), max(numW, ansi.StringWidth(nums[i])), max(pctW, ansi.StringWidth(pcts[i]))
 	}
 	barW := max(1, width-nameW-numW-pctW-6)
 	right := func(s string, w int) string { return lipgloss.PlaceHorizontal(w, lipgloss.Right, s) }
 	lines := make([]string, len(items))
 	for i, it := range items {
-		lines[i] = l.Pad(st.Text.Render(names[i]), nameW) + "  " + meter(st, float64(it.tokens)/float64(max(all, 1)), barW) +
+		lines[i] = l.Pad(st.Text.Render(names[i]), nameW) + "  " + meter(st, float64(it.tokens)/float64(top), barW) +
 			"  " + right(st.Text.Render(nums[i]), numW) + "  " + right(st.Muted.Render(pcts[i]), pctW)
 	}
 	return lines

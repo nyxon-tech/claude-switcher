@@ -1,6 +1,6 @@
 {
 	"app.name": "Claude Switcher",
-	"app.by": "by Nyxon",
+	"app.by": "by",
 	"app.tagline": "Switch Claude accounts without signing in again",
 	"tab.accounts": "Accounts",
 	"tab.chats": "Chats",
@@ -73,18 +73,6 @@
 	"month.10": "Oct",
 	"month.11": "Nov",
 	"month.12": "Dec",
-	"month.jalali.1": "Farvardin",
-	"month.jalali.2": "Ordibehesht",
-	"month.jalali.3": "Khordad",
-	"month.jalali.4": "Tir",
-	"month.jalali.5": "Mordad",
-	"month.jalali.6": "Shahrivar",
-	"month.jalali.7": "Mehr",
-	"month.jalali.8": "Aban",
-	"month.jalali.9": "Azar",
-	"month.jalali.10": "Dey",
-	"month.jalali.11": "Bahman",
-	"month.jalali.12": "Esfand",
 	"num.thousand": "{v}k",
 	"num.million": "{v}M",
 	"num.billion": "{v}B",
@@ -93,7 +81,5 @@
 	"hint.space": "space",
 	"hint.tab": "tab",
 	"hint.slash": "/",
-	"hint.q": "q",
-	"lang.en": "English",
-	"lang.fa": "فارسی"
+	"hint.q": "q"
 }

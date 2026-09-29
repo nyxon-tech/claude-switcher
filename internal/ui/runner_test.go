@@ -31,7 +31,6 @@ func read(t *testing.T, path string) string {
 func TestRunnerSwitchesAroundDesktop(t *testing.T) {
 	env, desk := fixture(t)
 	desk.running, desk.quitErr = true, platform.ErrManualQuit
-	i18n.Load("en")
 	tm := teatest.NewTestModel(t, newApp(env, Options{Version: "3.0.0", Mode: rtl.App, Theme: "dark"}),
 		teatest.WithInitialTermSize(100, 30))
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool { return bytes.Contains(b, []byte("Desktop running")) },
@@ -62,7 +61,7 @@ func TestRunnerSwitchesAroundDesktop(t *testing.T) {
 func TestRunnerWaitsForTheTray(t *testing.T) {
 	env, desk := fixture(t)
 	desk.running = true
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	a.screens[0].(*accountsScreen).focus = 1 // personal
 	press(a, "enter")
 	if a.runner == nil {
@@ -105,7 +104,7 @@ func TestSaveAsksBeforeReplacing(t *testing.T) {
 	const other = "9e9e9e9e-4444-4444-8444-444444444444"
 	env, desk := fixture(t)
 	put(t, filepath.Join(env.Install.DataDir, "config.json"), login(other))
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	s := a.screens[0].(*accountsScreen)
 
 	s.saveAs(a.Ctx, "work", false)
@@ -126,24 +125,20 @@ func TestSaveAsksBeforeReplacing(t *testing.T) {
 	}
 }
 
-// Boxes stay inside the smallest window the app supports, in both languages.
+// Boxes stay inside the smallest window the app supports.
 func TestBoxesFitSmallWindows(t *testing.T) {
-	for _, lang := range []string{"en", "fa"} {
-		t.Run(lang, func(t *testing.T) {
-			env, desk := fixture(t)
-			desk.running = true
-			a := newTestApp(t, env, lang, 60, 18)
-			a.screens[0].(*accountsScreen).focus = 1
-			press(a, "d")
-			checkFrame(t, a)
-			press(a, "esc", "enter")
-			a.Update(a.runner.try()())
-			a.Update(quitMsg{platform.ErrManualQuit})
-			checkFrame(t, a)
-			if text := strings.Join(screen(a), "\n"); !strings.Contains(text, a.L().Text(i18n.T("ui.key.force"))) {
-				t.Errorf("the runner's keys should stay visible:\n%s", text)
-			}
-		})
+	env, desk := fixture(t)
+	desk.running = true
+	a := newTestApp(t, env, 60, 18)
+	a.screens[0].(*accountsScreen).focus = 1
+	press(a, "d")
+	checkFrame(t, a)
+	press(a, "esc", "enter")
+	a.Update(a.runner.try()())
+	a.Update(quitMsg{platform.ErrManualQuit})
+	checkFrame(t, a)
+	if text := strings.Join(screen(a), "\n"); !strings.Contains(text, i18n.T("ui.key.force")) {
+		t.Errorf("the runner's keys should stay visible:\n%s", text)
 	}
 }
 
@@ -152,7 +147,7 @@ func TestBoxesFitSmallWindows(t *testing.T) {
 func TestForceQuestionExpires(t *testing.T) {
 	env, desk := fixture(t)
 	desk.running = true
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "left", "enter")
 	a.Update(a.runner.try()())
 	a.Update(quitMsg{platform.ErrManualQuit})
@@ -174,7 +169,7 @@ func TestForceQuestionExpires(t *testing.T) {
 // ctrl+c waits while Claude's files are being written, and quits otherwise.
 func TestCtrlCWaitsForTheWrite(t *testing.T) {
 	env, _ := fixture(t)
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "left", "enter")
 	press(a, "ctrl+c")
 	if a.toast.text != i18n.T("ui.run.busy") {
@@ -190,7 +185,7 @@ func TestCtrlCWaitsForTheWrite(t *testing.T) {
 func TestWaitErrorIsShown(t *testing.T) {
 	env, desk := fixture(t)
 	desk.running = true
-	a := newTestApp(t, env, "en", 100, 30)
+	a := newTestApp(t, env, 100, 30)
 	press(a, "left", "enter")
 	a.Update(a.runner.try()())
 	a.Update(closedMsg{errors.New("cannot list processes")})

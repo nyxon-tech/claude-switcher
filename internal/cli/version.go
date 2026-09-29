@@ -54,11 +54,9 @@ func (a *app) version(short bool) error {
 		return a.json(map[string]string{"version": b.Version, "commit": b.Commit, "date": b.Date,
 			"os": runtime.GOOS, "arch": runtime.GOARCH, "install": a.installMethod(), "go": runtime.Version()})
 	}
-	if a.tty {
-		a.print(a.out, ui.Logo(a.st.pal))
-		fmt.Fprintln(a.out)
-	}
-	a.print(a.out, a.line(a.st.bold.Render(a.txt(i18n.T("app.name"))), a.st.accent.Render(b.Version), a.st.muted.Render(a.txt(i18n.T("app.by")))))
+	st := a.st
+	a.print(a.out, st.accent.Render("✦")+" "+st.bold.Render(i18n.T("app.name")+" "+b.Version)+
+		st.muted.Render("  "+i18n.T("app.by")+" ")+ui.Nyxon(st.pal))
 	date := b.Date
 	if t, err := time.Parse(time.RFC3339, b.Date); err == nil {
 		date = i18n.Date(t.Local())

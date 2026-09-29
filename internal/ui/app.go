@@ -1,18 +1,18 @@
-// Package ui is the full-screen app: a frame (header with tabs and the status pill, divider,
-// body, toast line, footer with key hints) around one Screen per tab, plus the dialog and the
-// change runner that every screen shares.
+// Package ui is the full-screen app: a frame (header with the brand, the tabs and the status
+// pill, divider, body, toast line, footer with key hints) around one Screen per tab, plus the
+// dialog and the change runner that every screen shares.
 //
 // Adding a screen: write a type that implements Screen in its own file (screen_<name>.go) and
 // list it in newApp. The screen draws its body in View at the size it is given, through c.L()
-// so right-to-left languages mirror for free, with colours from c.St. It gets keys and clicks
-// only while its tab is open (mouse Y counts from the top of the body), every other message
-// always (so a background result finds it on any tab), and shownMsg each time its tab opens.
-// It reads state from c.Status or through ops in a tea.Cmd, never in Update or View. It writes
-// through c.Change (the change runner closes Claude Desktop around the write) or c.Do, and asks
-// through c.Confirm, c.Prompt, c.Choose and c.Alert. A tea.Cmd runs on another goroutine, so it
-// takes copies of what it needs from c, never c itself: Settings changes c's theme and rtl mode
-// while the app runs, and then every screen gets restyleMsg to rebuild anything it made from c.St
-// or c.L().
+// so that user data in Persian, Arabic or Hebrew reads right, with colours from c.St. It gets
+// keys and clicks only while its tab is open (mouse Y counts from the top of the body), every
+// other message always (so a background result finds it on any tab), and shownMsg each time its
+// tab opens. It reads state from c.Status or through ops in a tea.Cmd, never in Update or View.
+// It writes through c.Change (the change runner closes Claude Desktop around the write) or c.Do,
+// and asks through c.Confirm, c.Prompt, c.Choose and c.Alert. A tea.Cmd runs on another
+// goroutine, so it takes copies of what it needs from c, never c itself: Settings changes c's
+// theme and rtl mode while the app runs, and then every screen gets restyleMsg to rebuild
+// anything it made from c.St or c.L().
 package ui
 
 import (
@@ -32,8 +32,8 @@ import (
 type Screen interface {
 	Title() string                         // the tab label
 	Update(c *Ctx, msg tea.Msg) tea.Cmd    // see the package comment for what arrives when
-	View(c *Ctx, width, height int) string // the body; short lines line up at the reading-start edge
-	Keys(c *Ctx) []key.Binding             // the footer hints, in reading order; they win over the app's keys
+	View(c *Ctx, width, height int) string // the body; short lines line up at the left edge
+	Keys(c *Ctx) []key.Binding             // the footer hints, in order; they win over the app's keys
 	Typing() bool                          // a text field has focus: q, digits, tab and esc go to the screen
 }
 
@@ -107,8 +107,8 @@ const (
 	toastFor  = 4 * time.Second
 )
 
-// L is the layout for the current language and rtl mode.
-func (c *Ctx) L() Layout { return Layout{Mode: c.Opts.Mode, RTL: i18n.RTL()} }
+// L is the layout for the current rtl mode.
+func (c *Ctx) L() Layout { return Layout{Mode: c.Opts.Mode} }
 
 // Now is the clock ops uses, so tests can fix it.
 func (c *Ctx) Now() time.Time { return c.Env.Now() }
@@ -175,7 +175,7 @@ func (a *app) Init() tea.Cmd {
 	// The background is asked for whatever the theme: Settings can switch to one that follows it.
 	cmds := []tea.Cmd{a.Refresh(), a.poll(), a.screens[0].Update(a.Ctx, shownMsg{}), tea.RequestBackgroundColor}
 	if a.settingsErr == nil && !a.Settings.Onboarded { // the first run
-		cmds = append(cmds, a.Welcome())
+		a.Welcome()
 	}
 	if f := a.Opts.NewerVersion; f != nil {
 		cmds = append(cmds, func() tea.Msg { return newerMsg(f()) })
@@ -401,66 +401,41 @@ type span struct{ x0, x1 int }
 // everything fits, and returns where each tab landed, for clicks and the underline.
 func (a *app) header() (string, []span) {
 	l, st, w := a.L(), a.St, a.Width
+	full, short := st.brand(true), st.brand(false)
 	variants := []struct {
 		brand, sep string
 		fullPill   bool
 	}{
-		{"full", " · ", true}, {"mark", " · ", true}, {"mark", " · ", false},
-		{"mark", "  ", false}, {"", "  ", false}, {"", " ", false},
-	}
-	type seg struct {
-		text string
-		tab  int
+		{full, " · ", true}, {short, " · ", true}, {short, " · ", false},
+		{short, "  ", false}, {"", "  ", false}, {"", " ", false},
 	}
 	for n, v := range variants {
-		var segs []seg
+		lead, tabs := "", make([]span, len(a.screens))
 		if v.brand != "" {
-			brand := st.mark() // a brand lockup, never mirrored
-			if v.brand == "full" {
-				brand += " " + st.Text.Render(l.Text(i18n.T("app.name")))
-			}
-			segs = append(segs, seg{brand, -1}, seg{"   ", -1})
+			lead = v.brand + "   "
 		}
 		for i, s := range a.screens {
 			if i > 0 {
-				segs = append(segs, seg{st.Dim.Render(v.sep), -1})
+				lead += st.Dim.Render(v.sep)
 			}
 			style := st.TabOff
 			if i == a.tab {
 				style = st.TabOn
 			}
-			segs = append(segs, seg{style.Render(l.Text(s.Title())), i})
-		}
-		leadW := 0
-		for _, s := range segs {
-			leadW += ansi.StringWidth(s.text)
+			x, title := ansi.StringWidth(lead), style.Render(l.Text(s.Title()))
+			tabs[i] = span{x, x + ansi.StringWidth(title)}
+			lead += title
 		}
 		pill := a.pill(v.fullPill)
-		if leadW+2+ansi.StringWidth(pill) > w && n < len(variants)-1 {
+		if ansi.StringWidth(lead)+2+ansi.StringWidth(pill) > w && n < len(variants)-1 {
 			continue
 		}
-		x, parts, tabs := 0, make([]string, len(segs)), make([]span, len(a.screens))
-		if l.RTL {
-			x = w - leadW
-		}
-		for i := range segs {
-			s := segs[i]
-			if l.RTL {
-				s = segs[len(segs)-1-i]
-			}
-			sw := ansi.StringWidth(s.text)
-			if s.tab >= 0 {
-				tabs[s.tab] = span{x, x + sw}
-			}
-			x += sw
-			parts[i] = s.text
-		}
-		return l.Row(strings.Join(parts, ""), pill, w), tabs
+		return l.Row(lead, pill, w), tabs
 	}
 	return "", nil
 }
 
-// pill is the status at the trailing end of the header: the profile in use (● in the ok colour
+// pill is the status at the right end of the header: the profile in use (● in the ok colour
 // when Desktop is signed into it, the warn colour when not, or not saved yet) and whether
 // Desktop runs.
 func (a *app) pill(full bool) string {
@@ -469,22 +444,22 @@ func (a *app) pill(full bool) string {
 	}
 	l, st := a.L(), a.St
 	name := a.Status.Current
-	parts := []string{st.Dim.Render("○"), " ", st.Muted.Render(l.Text(i18n.T("ui.pill.none")))}
+	pill := st.Dim.Render("○") + " " + st.Muted.Render(l.Text(i18n.T("ui.pill.none")))
 	if name != "" {
 		dot := st.Warn.Render("●")
 		if p, ok := findProfile(a.Status, name); ok && p.SignedIn {
 			dot = st.OK.Render("●")
 		}
-		parts = []string{dot, " ", st.Text.Render(l.Data(name, 20))}
+		pill = dot + " " + st.Text.Render(l.Data(name, 20))
 	}
 	if full {
 		desk := "ui.desktop.closed"
 		if a.Status.Running {
 			desk = "ui.desktop.running"
 		}
-		parts = append(parts, "  ", st.Muted.Render(l.Text(i18n.T(desk))))
+		pill += "  " + st.Muted.Render(l.Text(i18n.T(desk)))
 	}
-	return l.Inline(parts...)
+	return pill
 }
 
 // divider is the line under the header, with the active tab underlined in the accent.
@@ -496,7 +471,7 @@ func (a *app) divider(tabs []span) string {
 		st.Divider.Render(strings.Repeat("─", w-x1))
 }
 
-// toastLine shows the current toast at the trailing edge.
+// toastLine shows the current toast at the right edge.
 func (a *app) toastLine() string {
 	l, st, w := a.L(), a.St, a.Width
 	if a.toast.text == "" {
@@ -507,11 +482,11 @@ func (a *app) toastLine() string {
 		toastWarn: st.Warn.Render("!"), toastFail: st.Fail.Render("✗"),
 	}[a.toast.kind]
 	text := st.Text.Render(l.Fit(a.toast.text, w-4))
-	return l.End(l.Inline(icon, " ", text, " "), w)
+	return l.End(icon+" "+text+" ", w)
 }
 
-// footer is the key hints at the leading edge and the version at the trailing edge; with "?"
-// every key of the screen and the app, in columns, above that line.
+// footer is the key hints at the left edge and the version at the right; with "?" every key of
+// the screen and the app, in columns, above that line.
 func (a *app) footer() []string {
 	l, st, w := a.L(), a.St, a.Width
 	version := a.Opts.Version
@@ -520,7 +495,7 @@ func (a *app) footer() []string {
 	}
 	version = st.Dim.Render(l.Path(version, 16))
 	if a.newer != "" {
-		version = l.Inline(version, "  ", st.Accent.Render(l.Text(i18n.T("ui.update", "version", a.newer))))
+		version += "  " + st.Accent.Render(l.Text(i18n.T("ui.update", "version", a.newer)))
 	}
 	if a.dialog != nil || a.runner != nil {
 		return []string{l.End(version, w)}
@@ -550,13 +525,12 @@ func bind(label, desc string, keys ...string) key.Binding {
 
 func hintItem(c *Ctx, b key.Binding) string {
 	l, st, h := c.L(), c.St, b.Help()
-	return l.Inline(st.Key.Render(h.Key), " ", st.Muted.Render(l.Text(h.Desc)))
+	return st.Key.Render(h.Key) + " " + st.Muted.Render(l.Text(h.Desc))
 }
 
-// hintLine is key hints in reading order, width cells wide. Hints that do not fit are dropped
-// from the end, except the last one ("? more").
+// hintLine is key hints in order, width cells wide. Hints that do not fit are dropped from the
+// end, except the last one ("? more").
 func hintLine(c *Ctx, keys []key.Binding, width int) string {
-	l := c.L()
 	var items []string
 	for _, b := range keys {
 		if b.Enabled() && b.Help().Key != "" {
@@ -564,22 +538,15 @@ func hintLine(c *Ctx, keys []key.Binding, width int) string {
 		}
 	}
 	for {
-		var parts []string
-		for i, it := range items {
-			if i > 0 {
-				parts = append(parts, "  ")
-			}
-			parts = append(parts, it)
-		}
-		line := l.Inline(parts...)
+		line := strings.Join(items, "  ")
 		if ansi.StringWidth(line) <= width || len(items) <= 1 {
-			return l.Pad(line, width)
+			return c.L().Pad(line, width)
 		}
 		items = append(items[:len(items)-2], items[len(items)-1])
 	}
 }
 
-// helpGrid lays every hint out in columns, filled top to bottom in reading order.
+// helpGrid lays every hint out in columns, filled top to bottom.
 func helpGrid(c *Ctx, keys []key.Binding, width int) []string {
 	l := c.L()
 	var items []string
@@ -593,13 +560,13 @@ func helpGrid(c *Ctx, keys []key.Binding, width int) []string {
 	rows := (len(items) + cols - 1) / cols
 	lines := make([]string, rows)
 	for r := range rows {
-		var parts []string
+		line := ""
 		for col := range cols {
 			if i := col*rows + r; i < len(items) {
-				parts = append(parts, l.Pad(items[i], colW))
+				line += l.Pad(items[i], colW)
 			}
 		}
-		lines[r] = l.Pad(l.Inline(parts...), width)
+		lines[r] = l.Pad(line, width)
 	}
 	return lines
 }
