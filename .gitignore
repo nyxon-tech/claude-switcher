@@ -1,2 +1,9 @@
 # Profile data (contains auth tokens - never commit!)
 .claude-instances/
+
+# Build output
+/bin/
+/dist/
+/completions/
+/manpages/
+*.exe

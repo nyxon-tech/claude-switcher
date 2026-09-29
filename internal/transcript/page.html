@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="Claude Switcher by Nyxon">
+<title>{{.Title}}</title>
+<style>
+:root {
+	--bg: #090b14; --card: #10131f; --user: #151935; --text: #f3f0e8;
+	--accent: #a8b2ff; --muted: #aaaec4; --line: #303345;
+	color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg: #f6f5f1; --card: #ffffff; --user: #eef0ff; --text: #1a1c29;
+		--accent: #4b55c8; --muted: #5c6078; --line: #d9dbe6;
+		color-scheme: light;
+	}
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0; background: var(--bg); color: var(--text);
+	font: 15px/1.7 Vazirmatn, Inter, 'Segoe UI', Tahoma, system-ui, sans-serif;
+}
+main { max-width: 860px; margin: 0 auto; padding: 48px 20px 16px; }
+h1 { font-size: 1.6rem; line-height: 1.35; margin: 0 0 12px; }
+.meta {
+	display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 28px; padding-bottom: 20px;
+	border-bottom: 1px solid var(--line); color: var(--muted); font-size: .875rem;
+}
+article {
+	background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+	padding: 14px 18px; margin: 0 0 14px;
+}
+article.user { background: var(--user); border-color: var(--accent); }
+article header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; color: var(--muted); font-size: .8rem; }
+article header b { color: var(--accent); font-weight: 600; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 10px 0 0; padding: 0; }
+.tools li { border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; color: var(--muted); font-size: .75rem; }
+footer { padding: 24px 20px 40px; text-align: center; font-size: .8rem; }
+footer a { color: var(--muted); text-decoration: none; }
+footer a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1 dir="auto">{{.Title}}</h1>
+<div class="meta">{{with .Cwd}}<span dir="auto">{{.}}</span>{{end}}{{with .Span}}<span>{{.}}</span>{{end}}{{with .Models}}<span>{{.}}</span>{{end}}</div>
+{{range .Msgs}}<article class="{{.Role}}" dir="auto">
+<header dir="ltr"><b>{{speaker .Role}}</b>{{if not .Time.IsZero}}<time>{{when .Time}}</time>{{end}}</header>
+{{with .Text}}<div class="text">{{.}}</div>{{end}}
+{{with .Tools}}<ul class="tools" dir="ltr">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+</article>
+{{end}}</main>
+<footer><a href="https://github.com/nyxon-tech/claude-switcher">Exported with Claude Switcher by Nyxon</a></footer>
+</body>
+</html>

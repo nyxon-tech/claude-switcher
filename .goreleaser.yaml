@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Release: push a tag like v3.0.0; .github/workflows/release.yml runs this.
+# Local dry run: goreleaser release --snapshot --clean
+version: 2
+project_name: claude-switcher
+
+before:
+  hooks:
+    - go mod tidy
+    - sh scripts/gen-docs.sh
+
+builds:
+  - main: ./cmd/claude-switcher
+    binary: claude-switcher
+    env: [CGO_ENABLED=0]
+    goos: [windows, darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+universal_binaries:
+  - replace: true
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # No version in the name, so releases/latest/download/<name> is a stable URL for the installers
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md, completions/*, manpages/*]
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - package_name: claude-switcher
+    vendor: Nyxon
+    maintainer: Nyxon <https://github.com/nyxon-tech>
+    homepage: https://github.com/nyxon-tech/claude-switcher
+    description: Switch Claude Desktop accounts without signing in again, and manage your Claude Code chats.
+    license: MIT
+    formats: [deb, rpm]
+    contents:
+      - { src: completions/claude-switcher.bash, dst: /usr/share/bash-completion/completions/claude-switcher }
+      - { src: completions/claude-switcher.zsh, dst: /usr/share/zsh/vendor-completions/_claude-switcher }
+      - { src: completions/claude-switcher.fish, dst: /usr/share/fish/vendor_completions.d/claude-switcher.fish }
+      - { src: manpages/claude-switcher.1.gz, dst: /usr/share/man/man1/claude-switcher.1.gz }
+
+# Package managers publish only once their repositories and the PUBLISHER_TOKEN secret exist
+homebrew_casks:
+  - name: claude-switcher
+    binaries: [claude-switcher]
+    homepage: https://github.com/nyxon-tech/claude-switcher
+    description: Switch Claude Desktop accounts without signing in again, and manage your Claude Code chats.
+    completions:
+      bash: completions/claude-switcher.bash
+      zsh: completions/claude-switcher.zsh
+      fish: completions/claude-switcher.fish
+    manpages: [manpages/claude-switcher.1.gz]
+    skip_upload: '{{ if isEnvSet "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository:
+      owner: nyxon-tech
+      name: homebrew-tap
+      token: '{{ envOrDefault "PUBLISHER_TOKEN" "" }}'
+    # The binary is not notarized yet; without this macOS would call it damaged
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/claude-switcher"]
+          end
+
+scoops:
+  - name: claude-switcher
+    homepage: https://github.com/nyxon-tech/claude-switcher
+    description: Switch Claude Desktop accounts without signing in again, and manage your Claude Code chats.
+    license: MIT
+    skip_upload: '{{ if isEnvSet "PUBLISHER_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository:
+      owner: nyxon-tech
+      name: scoop-bucket
+      token: '{{ envOrDefault "PUBLISHER_TOKEN" "" }}'
+
+winget:
+  - name: claude-switcher
+    package_identifier: Nyxon.ClaudeSwitcher
+    publisher: Nyxon
+    publisher_url: https://github.com/nyxon-tech
+    short_description: Switch Claude Desktop accounts without signing in again, and manage your Claude Code chats.
+    license: MIT
+    homepage: https://github.com/nyxon-tech/claude-switcher
+    release_notes_url: "https://github.com/nyxon-tech/claude-switcher/releases/tag/{{ .Tag }}"
+    tags: [claude, cli, tui, account-switcher, persian]
+    skip_upload: '{{ if isEnvSet "WINGET_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository:
+      owner: nyxon-tech
+      name: winget-pkgs
+      branch: "claude-switcher-{{ .Version }}"
+      token: '{{ envOrDefault "WINGET_TOKEN" "" }}'
+      pull_request:
+        enabled: true
+        base: { owner: microsoft, name: winget-pkgs, branch: master }
+
+release:
+  extra_files:
+    - glob: ./install.sh
+    - glob: ./install.ps1
+  footer: |
+    **Install**
+    - Windows: `irm https://raw.githubusercontent.com/nyxon-tech/claude-switcher/main/install.ps1 | iex`
+    - macOS and Linux: `curl -fsSL https://raw.githubusercontent.com/nyxon-tech/claude-switcher/main/install.sh | sh`
+
+    Verify a download: `gh attestation verify <file> -R nyxon-tech/claude-switcher`
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]

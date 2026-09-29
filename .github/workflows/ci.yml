@@ -1,0 +1,59 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Build and run the binary
+        shell: bash
+        run: |
+          go build -o bin/claude-switcher ./cmd/claude-switcher
+          ./bin/claude-switcher version
+          ./bin/claude-switcher --help
+
+  install-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go build -o claude-switcher.exe ./cmd/claude-switcher
+      - name: Install and uninstall in Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          ./install.ps1 -Binary ./claude-switcher.exe -NoShortcut
+          & "$env:LOCALAPPDATA\Programs\claude-switcher\claude-switcher.exe" version
+          ./install.ps1 -Uninstall
+
+  release-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
