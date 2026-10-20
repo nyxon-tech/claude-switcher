@@ -81,7 +81,7 @@ Claude Desktop keeps three things on disk, and Claude Switcher treats each one d
 
 | | Windows | macOS | Linux |
 | --- | --- | --- | --- |
-| Desktop data | `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude` (or `%APPDATA%\Claude`) | `~/Library/Application Support/Claude` | `~/.config/Claude` |
+| Desktop data | `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc` (older builds: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude`; standalone installer: `%APPDATA%\Claude`) | `~/Library/Application Support/Claude` | `~/.config/Claude` |
 | Chat history | `%USERPROFILE%\.claude\projects` | `~/.claude/projects` | `~/.claude/projects` |
 | Saved logins | `%USERPROFILE%\.claude-instances` | `~/.claude-instances` | `~/.claude-instances` |
 

@@ -53,6 +53,45 @@ func TestWindowsInstalls(t *testing.T) {
 		}
 	})
 
+	t.Run("data moved out of the package", func(t *testing.T) {
+		local, roaming := t.TempDir(), t.TempDir()
+		pkg := msixData(filepath.Join(local, "Packages", msixFamily))
+		moved := filepath.Join(local, "Claude-Data", "claude_pzs8sxrjxfjjc")
+		mkfile(t, filepath.Join(pkg, ".user-data-left.claude_pzs8sxrjxfjjc"), old)
+		mkfile(t, filepath.Join(pkg, "config.json"), recent) // a stale login left behind
+		mkfile(t, filepath.Join(moved, "config.json"), old)
+
+		got := windowsInstalls(local, roaming)
+		if len(got) != 1 || got[0].DataDir != moved || got[0].AppID != "Claude_pzs8sxrjxfjjc!Claude" {
+			t.Errorf("got %+v, want one MSIX install using %s", got, moved)
+		}
+	})
+
+	t.Run("moved data without the marker", func(t *testing.T) {
+		local, roaming := t.TempDir(), t.TempDir()
+		pkg := msixData(filepath.Join(local, "Packages", msixFamily))
+		mkfile(t, filepath.Join(pkg, "config.json"), old)
+		mkfile(t, filepath.Join(local, "Claude-Data", "claude_pzs8sxrjxfjjc", "config.json"), old)
+
+		if got := windowsInstalls(local, roaming); len(got) != 1 || got[0].DataDir != pkg {
+			t.Errorf("got %+v, want the package folder while Desktop has not left it", got)
+		}
+	})
+
+	t.Run("roaming folder redirected to a package Desktop left", func(t *testing.T) {
+		local, roaming := t.TempDir(), t.TempDir()
+		pkg := msixData(filepath.Join(local, "Packages", msixFamily))
+		mkfile(t, filepath.Join(pkg, ".user-data-left.claude_pzs8sxrjxfjjc"), old)
+		mkfile(t, filepath.Join(pkg, "config.json"), old)
+		mkfile(t, filepath.Join(local, "Claude-Data", "claude_pzs8sxrjxfjjc", "config.json"), old)
+		if err := os.Symlink(pkg, filepath.Join(roaming, "Claude")); err != nil {
+			t.Skipf("symlinks need developer mode here: %v", err)
+		}
+		if got := windowsInstalls(local, roaming); len(got) != 1 || got[0].Kind != MSIX {
+			t.Errorf("got %+v, want only the MSIX install", got)
+		}
+	})
+
 	t.Run("nothing installed", func(t *testing.T) {
 		if got := windowsInstalls(t.TempDir(), t.TempDir()); len(got) != 0 {
 			t.Errorf("got %+v, want none", got)

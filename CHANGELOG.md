@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- On Windows, Claude Desktop now keeps its data in `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc` instead of inside its MSIX package, and leaves a `.user-data-left.*` file in the old folder. The app kept using the old folder, so saving a profile stored a stale login and adding an account opened Desktop still signed into the previous one. It now follows Desktop to the new folder.
+
 ## 3.0.0
 
 A rewrite from scratch in Go: one binary for Windows, macOS and Linux, with a full-screen app and a command line.

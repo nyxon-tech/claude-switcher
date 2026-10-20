@@ -24,7 +24,7 @@ Dependencies point downwards only: `cli` and `ui` use `ops`; `ops` uses `platfor
 
 | What | Where |
 |---|---|
-| Desktop data folder | Windows MSIX `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude`, Windows classic `%APPDATA%\Claude`, macOS `~/Library/Application Support/Claude`, Linux `~/.config/Claude` |
+| Desktop data folder | Windows MSIX `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc` (older builds: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude`), Windows classic `%APPDATA%\Claude`, macOS `~/Library/Application Support/Claude`, Linux `~/.config/Claude` |
 | Chat lists | `<data>/claude-code-sessions/<accountUuid>/<orgUuid>/local_<uuid>.json` (one card per chat), `deleted_<cliSessionId>` tombstones |
 | Transcripts | `~/.claude/projects/<slug>/<cliSessionId>.jsonl` (or `$CLAUDE_CONFIG_DIR/projects`), shared by every account |
 | Signed-in account | `<data>/config.json` key `lastKnownAccountUuid` |
