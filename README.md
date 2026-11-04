@@ -16,6 +16,18 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-a8b2ff?style=flat-square&labelColor=303345" alt="MIT license"></a>
 </p>
 
+<p align="center">
+  <b>English</b> &nbsp;·&nbsp; <a href="./README.fa.md">فارسی</a>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> &nbsp;·&nbsp;
+  <a href="#every-account-every-chat">Chats</a> &nbsp;·&nbsp;
+  <a href="#what-it-does">Features</a> &nbsp;·&nbsp;
+  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
+  <a href="#build-from-source">Build</a>
+</p>
+
 Claude Desktop is signed into one account at a time. Switching means logging out and back in, and every account keeps its own Code sidebar, so the chats you had a minute ago look gone.
 
 **Claude Switcher** saves each login once and switches between them in seconds. It shows the Code chats of every account in one place, copies or moves them to whichever account you are using, brings back chats that fell out of the sidebar, and undoes any of it. It is a single binary that only touches files on your computer.
@@ -151,4 +163,6 @@ Unofficial. Not affiliated with or endorsed by Anthropic. Claude is a trademark 
 
 <p align="center">
   <a href="https://github.com/nyxon-tech"><img src="./assets/readme/made-by-nyxon.svg" width="250" alt="Made by Nyxon"></a>
+  &nbsp;
+  <a href="https://github.com/Emadhabibnia1385"><img src="./assets/readme/powered-by-emad.svg" width="250" alt="Powered by Emad Habibnia"></a>
 </p>

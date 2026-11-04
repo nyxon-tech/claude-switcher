@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.1
+
+### Changed
+- The README is now bilingual: English first, with a full Persian translation in `README.fa.md` and a language switch at the top of both.
+- Added a "Powered by Emad Habibnia" badge next to "Made by Nyxon".
+
 ## 3.0.0
 
 A rewrite from scratch in Go: one binary for Windows, macOS and Linux, with a full-screen app and a command line.
